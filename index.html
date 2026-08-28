@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Druckkalkulator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <h1><span class="spool"></span>Druckkalkulator</h1>
+    <div class="sub" id="statusline">lädt…</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-view="kalk"><span class="n">01</span>Kalkulation</div>
+    <div class="tab" data-view="stamm"><span class="n">02</span>Stammdaten</div>
+  </div>
+
+  <!-- ===================== KALKULATION ===================== -->
+  <div class="view active" id="view-kalk">
+
+    <div class="panel">
+      <h2>Auftrag</h2>
+      <p class="hint">Ein Auftrag kann mehrere Produkte (Positionen) enthalten.</p>
+      <div class="field">
+        <label>Auftragsbezeichnung (optional)</label>
+        <input id="jobName" placeholder="z. B. Angebot Kunde Müller">
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Positionen (Produkte)</h2>
+      <p class="hint">Bis zu 4 Filamente je Position kombinieren. Menge/Zeit gelten für die gesamte Position (alle Stück zusammen).</p>
+      <div id="positionList"></div>
+      <div class="btn-row">
+        <button class="add-btn" id="addPositionBtn">+ Position hinzufügen</button>
+        <button class="ghost-btn" id="clearPositionsBtn">Alle Positionen leeren</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Nachlass (auf gesamten Auftrag)</h2>
+      <p class="hint" id="tierHint">Kein Mengenrabatt hinterlegt oder Stückzahl zu gering.</p>
+      <div class="row g2">
+        <div class="field">
+          <label>Gewinnaufschlag gesamt (%)</label>
+          <input id="margin" type="number" min="0" step="1" value="0">
+        </div>
+        <div class="field">
+          <label>Zusätzlicher Nachlass (%, manuell)</label>
+          <input id="extraDiscount" type="number" min="0" max="100" step="1" value="0">
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="calc-btn" id="calcBtn" style="flex:2;">Kosten berechnen</button>
+      <button class="ghost-btn" id="exportCsvBtn" style="flex:1;">⇩ Als CSV-Angebot exportieren</button>
+    </div>
+
+    <div class="panel result" id="resultPanel" style="display:none;"></div>
+
+  </div>
+
+  <!-- ===================== STAMMDATEN ===================== -->
+  <div class="view" id="view-stamm">
+
+    <div class="panel">
+      <h2>Filamente & Farben</h2>
+      <p class="hint">Lege hier jede Material/Farb-Kombination mit ihrem Kilopreis an.</p>
+      <div id="filamentList"></div>
+      <div class="empty" id="filamentEmpty" style="display:none;">Noch keine Filamente hinterlegt.</div>
+      <button class="add-btn" id="addFilamentBtn">+ Filament hinzufügen</button>
+    </div>
+
+    <div class="panel">
+      <h2>Mengenrabatt-Stufen</h2>
+      <p class="hint">Ab welcher Gesamt-Stückzahl im Auftrag automatisch wie viel Rabatt gewährt wird.</p>
+      <div id="tierList"></div>
+      <div class="empty" id="tierEmpty" style="display:none;">Noch keine Rabattstufen hinterlegt.</div>
+      <button class="add-btn" id="addTierBtn">+ Stufe hinzufügen</button>
+    </div>
+
+    <div class="panel">
+      <h2>Allgemeine Kosten</h2>
+      <p class="hint">Diese Werte fließen automatisch in jede Kalkulation ein.</p>
+      <div class="row g2" style="margin-bottom:14px;">
+        <div class="field">
+          <label>Strompreis (€ / kWh)</label>
+          <input id="genStrompreis" type="number" min="0" step="0.01" placeholder="0,32">
+        </div>
+        <div class="field">
+          <label>Druckerleistung (Watt)</label>
+          <input id="genLeistung" type="number" min="0" step="1" placeholder="150">
+        </div>
+      </div>
+      <div class="row g2">
+        <div class="field">
+          <label>Wartung & Verschleiß (€ / Druckstunde)</label>
+          <input id="genWartung" type="number" min="0" step="0.01" placeholder="0,50">
+        </div>
+        <div class="field">
+          <label>Arbeitskosten (€ / Stunde)</label>
+          <input id="genArbeit" type="number" min="0" step="0.5" placeholder="20,00">
+        </div>
+      </div>
+      <div class="save-msg" id="genSaveMsg">Gespeichert.</div>
+    </div>
+
+  </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
+
+</html>

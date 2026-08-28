@@ -1,0 +1,22 @@
+{
+  "name": "druckkalkulator",
+  "version": "1.0.0",
+  "description": "3D-Druck Preiskalkulator - Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.druckkalkulator.app",
+    "productName": "Druckkalkulator",
+    "files": ["index.html", "style.css", "script.js", "main.js"],
+    "mac": { "target": "dmg" },
+    "win": { "target": "nsis" },
+    "linux": { "target": "AppImage" }
+  }
+}
