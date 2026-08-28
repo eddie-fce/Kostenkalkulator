@@ -2,10 +2,11 @@
   "name": "druckkalkulator",
   "version": "1.0.0",
   "description": "3D-Druck Preiskalkulator - Desktop App",
+  "author": "Dein Name",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder --publish=never"
   },
   "devDependencies": {
     "electron": "^31.0.0",
