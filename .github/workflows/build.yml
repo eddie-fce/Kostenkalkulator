@@ -30,7 +30,7 @@ jobs:
         run: npm run build
 
       - name: Installer als Artefakt hochladen
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: druckkalkulator-${{ matrix.os }}
           path: |
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Alle Artefakte herunterladen
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
