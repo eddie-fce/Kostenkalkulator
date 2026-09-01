@@ -358,131 +358,149 @@ $('#clearPositionsBtn').addEventListener('click', ()=>{
   $('#resultPanel').style.display = 'none';
 });
 
-// ---------- Berechnung (gemeinsam für Anzeige + CSV-Export) ----------
-function computeQuote(){
-  const marginPct = parseFloat($('#margin').value)||0;
-  const extraDiscountPct = parseFloat($('#extraDiscount').value)||0;
-  const jobName = $('#jobName').value.trim();
-
-  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0;
-  const posLines = [];
-
-  positionen.forEach((pos,idx)=>{
-    const stueckzahl = parseInt(pos.stueckzahl)||1;
-    const druckzeit = parseFloat(pos.druckzeit)||0;
-    const arbeitszeit = parseFloat(pos.arbeitszeit)||0;
-
-    const usedSlots = pos.slots.filter(s=> s && s.filamentId && parseFloat(s.gramm)>0);
-    const material = usedSlots.reduce((sum,s)=>{
-      const f = filamente.find(x=>x.id===s.filamentId);
-      if(!f) return sum;
-      return sum + (parseFloat(s.gramm)/1000) * f.preis;
-    },0);
-    const strom = (allgemein.leistung/1000) * druckzeit * allgemein.strompreis;
-    const wartung = allgemein.wartung * druckzeit;
-    const arbeit = allgemein.arbeit * arbeitszeit;
-    const subtotal = material+strom+wartung+arbeit;
-
-    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit;
-
-    posLines.push({
-      nr: idx+1,
-      name: pos.name || 'Ohne Namen',
-      stueckzahl,
-      subtotal,
-      proStueck: subtotal/stueckzahl
-    });
-  });
-
-  const sumStueckzahl = totalStueckzahl();
-  const zwischensumme = materialTotal + stromTotal + wartungTotal + arbeitTotal;
-  const gewinn = zwischensumme * (marginPct/100);
-  const nachGewinn = zwischensumme + gewinn;
-
-  const tier = findTier(sumStueckzahl);
-  const tierPct = tier ? tier.rabatt : 0;
-  const totalDiscountPct = tierPct + extraDiscountPct;
-  const rabattBetrag = nachGewinn * (totalDiscountPct/100);
-  const gesamt = nachGewinn - rabattBetrag;
-
-  return {jobName, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal,
-    zwischensumme, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
-    rabattBetrag, gesamt, sumStueckzahl};
+// ---------- 3MF-Import (gesliste .gcode.3mf aus Bambu Studio / OrcaSlicer) ----------
+function hexDist(a, b){
+  if(!a || !b) return 999;
+  const pa = [1,3,5].map(i=>parseInt(a.substr(i,2)||'00',16));
+  const pb = [1,3,5].map(i=>parseInt(b.substr(i,2)||'00',16));
+  return Math.sqrt(pa.reduce((s,v,i)=> s + (v-pb[i])**2, 0));
 }
 
-$('#calcBtn').addEventListener('click', ()=>{
-  const q = computeQuote();
-
-  let html = '';
-  if(q.jobName) html += `<h2 style="margin-bottom:14px;">${q.jobName}</h2>`;
-
-  html += `<h3>Positionen</h3>`;
-  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
-
-  html += `<h3>Kosten gesamt</h3>`;
-  html += `<div class="line"><span>Materialkosten</span><span>${fmt(q.materialTotal)} €</span></div>`;
-  html += `<div class="line"><span>Stromkosten</span><span>${fmt(q.stromTotal)} €</span></div>`;
-  html += `<div class="line"><span>Wartung & Verschleiß</span><span>${fmt(q.wartungTotal)} €</span></div>`;
-  html += `<div class="line"><span>Arbeitskosten</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
-  html += `<div class="line"><span>Zwischensumme</span><span>${fmt(q.zwischensumme)} €</span></div>`;
-  if(q.marginPct>0) html += `<div class="line"><span>Gewinnaufschlag (${q.marginPct}%)</span><span>${fmt(q.gewinn)} €</span></div>`;
-  if(q.totalDiscountPct>0){
-    let label = 'Nachlass';
-    if(q.tierPct>0 && q.extraDiscountPct>0) label = `Nachlass (Mengenrabatt ${q.tierPct}% + Zusatz ${q.extraDiscountPct}%)`;
-    else if(q.tierPct>0) label = `Mengenrabatt (${q.tierPct}%)`;
-    else label = `Zusätzlicher Nachlass (${q.extraDiscountPct}%)`;
-    html += `<div class="line"><span>${label}</span><span>−${fmt(q.rabattBetrag)} €</span></div>`;
-  }
-  html += `<div class="total"><span>Gesamtpreis (${q.sumStueckzahl} Stk.)</span><span>${fmt(q.gesamt)} €</span></div>`;
-  if(q.sumStueckzahl>0) html += `<div class="line"><span>Ø Preis / Stück</span><span>${fmt(q.gesamt/q.sumStueckzahl)} €</span></div>`;
-
-  const panel = $('#resultPanel');
-  panel.innerHTML = html;
-  panel.style.display = 'block';
-  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
-});
-
-// ---------- CSV-Export (Preisangebot) ----------
-function csvNum(n){ return n.toFixed(2).replace('.', ','); }
-function csvEsc(s){
-  s = String(s ?? '');
-  return /[;"\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+function findFilamentByTypeColor(type, colorHex){
+  const sameType = filamente.filter(f => (f.material||'').toLowerCase() === (type||'').toLowerCase());
+  const pool = sameType.length ? sameType : filamente;
+  if(!pool.length) return null;
+  let best = null, bestDist = Infinity;
+  pool.forEach(f=>{
+    const fHex = f.farbHex || guessHex(f.farbe);
+    const d = hexDist(fHex, colorHex);
+    if(d < bestDist){ bestDist = d; best = f; }
+  });
+  // Nur als Treffer werten, wenn Material passt UND Farbe einigermaßen nah ist
+  return (sameType.length && bestDist < 60) ? best : null;
 }
 
-$('#exportCsvBtn').addEventListener('click', ()=>{
-  const q = computeQuote();
-  const today = new Date().toLocaleDateString('de-DE');
-  const rows = [];
+async function import3MF(file){
+  const msg = $('#mf3Msg');
+  msg.innerHTML = `<div class="import-msg">Lese ${file.name}…</div>`;
+  try{
+    const buffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buffer);
 
-  rows.push(['Preisangebot']);
-  rows.push(['Auftrag', q.jobName || '']);
-  rows.push(['Datum', today]);
-  rows.push([]);
-  rows.push(['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']);
-  q.posLines.forEach(l=>{
-    rows.push([l.nr, l.name, l.stueckzahl, csvNum(l.proStueck), csvNum(l.subtotal)]);
-  });
-  rows.push([]);
-  rows.push(['','','','Zwischensumme', csvNum(q.zwischensumme)]);
-  if(q.marginPct>0) rows.push(['','','',`Gewinnaufschlag (${q.marginPct}%)`, csvNum(q.gewinn)]);
-  if(q.totalDiscountPct>0){
-    let label = 'Nachlass';
-    if(q.tierPct>0 && q.extraDiscountPct>0) label = `Nachlass (Mengenrabatt ${q.tierPct}% + Zusatz ${q.extraDiscountPct}%)`;
-    else if(q.tierPct>0) label = `Mengenrabatt (${q.tierPct}%)`;
-    else label = `Zusätzlicher Nachlass (${q.extraDiscountPct}%)`;
-    rows.push(['','','',label, '-' + csvNum(q.rabattBetrag)]);
+    const sliceInfoEntry = Object.keys(zip.files).find(k => /metadata\/slice_info\.config$/i.test(k));
+    if(!sliceInfoEntry){
+      msg.innerHTML = `<div class="import-msg warn">Diese Datei ist noch nicht gesliced (keine Metadata/slice_info.config gefunden). Bitte in Bambu Studio/OrcaSlicer zuerst slicen und über „Datei → Exportieren → Sliced File exportieren“ als .gcode.3mf speichern.</div>`;
+      return;
+    }
+
+    const sliceXml = await zip.files[sliceInfoEntry].async('text');
+
+    let projectSettings = {};
+    const settingsEntry = Object.keys(zip.files).find(k => /metadata\/project_settings\.config$/i.test(k));
+    if(settingsEntry){
+      try{ projectSettings = JSON.parse(await zip.files[settingsEntry].async('text')); }catch(e){ /* ignorieren */ }
+    }
+
+    const plateRegex = /<plate>([\s\S]*?)<\/plate>/g;
+    let plateMatch, plateCount = 0;
+    const unmatched = new Set();
+    const baseName = file.name.replace(/\.gcode\.3mf$|\.3mf$/i, '');
+
+    // leere Standard-Position (unbenutzt) vor dem Import entfernen
+    const isEmpty = p => !p.name && !parseFloat(p.druckzeit) && !parseFloat(p.arbeitszeit) && !p.slots.some(s=>s && s.filamentId);
+    if(positionen.length === 1 && isEmpty(positionen[0])) positionen = [];
+
+    while((plateMatch = plateRegex.exec(sliceXml)) !== null){
+      const content = plateMatch[1];
+      const idxMatch = content.match(/<metadata\s+key="index"\s+value="(\d+)"/);
+      const predMatch = content.match(/<metadata\s+key="prediction"\s+value="([^"]+)"/);
+      const predictionSec = predMatch ? parseFloat(predMatch[1]) : 0;
+      const druckzeitH = predictionSec ? +(predictionSec/3600).toFixed(2) : 0;
+
+      const filRegex = /<filament\s+id="(\d+)"[^>]*type="([^"]+)"[^>]*color="([^"]+)"[^>]*used_g="([^"]+)"/g;
+      let fm, slots = [null,null,null,null], slotIdx = 0;
+      while((fm = filRegex.exec(content)) !== null && slotIdx < 4){
+        const type = fm[2], color = fm[3], usedG = parseFloat(fm[4]);
+        const match = findFilamentByTypeColor(type, color);
+        if(match){
+          slots[slotIdx] = {filamentId: match.id, gramm: String(Math.round(usedG*10)/10)};
+        } else {
+          unmatched.add(`${type} ${color}`);
+        }
+        slotIdx++;
+      }
+
+      plateCount++;
+      const plateLabel = plateCount > 1 ? `${baseName} – Platte ${idxMatch ? idxMatch[1] : plateCount}` : baseName;
+      addPosition({
+        name: plateLabel,
+        stueckzahl: 1,
+        druckzeit: druckzeitH,
+        arbeitszeit: 0,
+        slots
+      });
+    }
+
+    renderPositionen();
+    updateTierHint();
+
+    let html = `<div class="import-msg ${unmatched.size?'warn':'ok'}">${plateCount} Position(en) aus „${file.name}“ importiert (Druckzeit + Filamentverbrauch automatisch übernommen). Stückzahl und Arbeitszeit bitte noch prüfen/eintragen.`;
+    if(unmatched.size){
+      html += `\nNicht zugeordnete Filamente (bitte manuell in der Position auswählen, ggf. erst in Stammdaten anlegen):\n– ${[...unmatched].join('\n– ')}`;
+    }
+    html += '</div>';
+    msg.innerHTML = html;
+
+  }catch(e){
+    console.error(e);
+    msg.innerHTML = `<div class="import-msg warn">Datei konnte nicht gelesen werden: ${e.message}</div>`;
   }
-  rows.push(['','','','Gesamtpreis', csvNum(q.gesamt)]);
-  if(q.sumStueckzahl>0) rows.push(['','','','Ø Preis / Stück', csvNum(q.gesamt/q.sumStueckzahl)]);
+}
 
-  const csv = '\uFEFF' + rows.map(r=>r.map(csvEsc).join(';')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const safeName = (q.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-  a.href = url; a.download = `preisangebot_${safeName || 'angebot'}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+$('#mf3ImportBtn').addEventListener('click', ()=> $('#mf3File').click());
+$('#mf3File').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(file) import3MF(file);
+  e.target.value = '';
 });
 
-loadData();
+// ---------- G-Code-Import (PrusaSlicer / SuperSlicer / OrcaSlicer / Bambu Studio – Klartext) ----------
+function parseGcodeTime(str){
+  // z. B. "2h 15m 30s" oder "45m 12s" oder "38s"
+  let sec = 0;
+  const h = str.match(/(\d+)\s*h/); if(h) sec += parseInt(h[1])*3600;
+  const m = str.match(/(\d+)\s*m(?!s)/); if(m) sec += parseInt(m[1])*60;
+  const s = str.match(/(\d+)\s*s/); if(s) sec += parseInt(s[1]);
+  return sec;
+}
+
+async function importGcode(file){
+  const msg = $('#mf3Msg');
+  msg.innerHTML = `<div class="import-msg">Lese ${file.name}…</div>`;
+  try{
+    const text = await file.text();
+    // Kommentare stehen meist in den letzten paar hundert Zeilen (Fußzeile)
+    const tailLines = text.split(/\r?\n/).slice(-400).join('\n');
+    const fullForSearch = tailLines.length > 500 ? tailLines : text;
+
+    const timeMatch = fullForSearch.match(/;\s*estimated printing time[^=]*=\s*([^\n\r]+)/i)
+      || text.match(/;TIME:(\d+)/i);
+    let druckzeitH = 0;
+    if(timeMatch){
+      if(/^\d+$/.test(timeMatch[1].trim())){
+        druckzeitH = +(parseInt(timeMatch[1])/3600).toFixed(2); // Cura: Sekunden
+      } else {
+        druckzeitH = +(parseGcodeTime(timeMatch[1])/3600).toFixed(2); // Prusa-Format: "Xh Ym Zs"
+      }
+    }
+
+    const gramsMatch = fullForSearch.match(/;\s*filament used \[g\]\s*=\s*([^\n\r]+)/i);
+    const typeMatch = fullForSearch.match(/;\s*filament_type\s*=\s*([^\n\r]+)/i);
+    const colourMatch = fullForSearch.match(/;\s*filament_colour\s*=\s*([^\n\r]+)/i);
+
+    const grams = gramsMatch ? gramsMatch[1].split(',').map(s=>parseFloat(s.trim())).filter(n=>!isNaN(n)&&n>0) : [];
+    const types = typeMatch ? typeMatch[1].split(/[,;]/).map(s=>s.trim()) : [];
+    const colours = colourMatch ? colourMatch[1].split(/[,;]/).map(s=>s.trim()) : [];
+
+    const unmatched = new Set();
+    const
