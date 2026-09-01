@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Druckkalkulator</title>
 <link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -34,6 +35,13 @@
     <div class="panel">
       <h2>Positionen (Produkte)</h2>
       <p class="hint">Bis zu 4 Filamente je Position kombinieren. Menge/Zeit gelten für die gesamte Position (alle Stück zusammen).</p>
+      <div class="btn-row" style="margin-bottom:14px;">
+        <input type="file" id="mf3File" accept=".3mf" style="display:none;">
+        <button class="ghost-btn" id="mf3ImportBtn">⇪ Gesliste .gcode.3mf importieren</button>
+        <input type="file" id="gcodeFile" accept=".gcode,.gco,.g" style="display:none;">
+        <button class="ghost-btn" id="gcodeImportBtn">⇪ G-Code importieren</button>
+      </div>
+      <div id="mf3Msg"></div>
       <div id="positionList"></div>
       <div class="btn-row">
         <button class="add-btn" id="addPositionBtn">+ Position hinzufügen</button>
@@ -116,6 +124,4 @@
 
 <script src="script.js"></script>
 </body>
-</html>
-
 </html>
