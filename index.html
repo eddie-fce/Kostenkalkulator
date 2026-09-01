@@ -78,7 +78,7 @@
 
     <div class="panel">
       <h2>Filamente & Farben</h2>
-      <p class="hint">Lege hier jede Material/Farb-Kombination mit ihrem Kilopreis an.</p>
+      <p class="hint">Lege hier jede Material/Farb-Kombination mit ihrem Kilopreis an. Der Verschleiß-Zuschlag wird beim Material automatisch sinnvoll vorgeschlagen (PLA/PETG/TPU: kein Zuschlag; ABS/ASA/PC/Nylon: erhöht durch höhere Drucktemperatur; faserverstärkte Filamente wie PA-CF/PET-CF: deutlich erhöht durch Nozzle-Abnutzung) – danach frei anpassbar.</p>
       <div id="filamentList"></div>
       <div class="empty" id="filamentEmpty" style="display:none;">Noch keine Filamente hinterlegt.</div>
       <button class="add-btn" id="addFilamentBtn">+ Filament hinzufügen</button>
@@ -93,9 +93,27 @@
     </div>
 
     <div class="panel">
+      <h2>Verschleißteile (Basis-Wartungssatz)</h2>
+      <p class="hint">Trag hier deine tatsächlichen Verschleißteile mit Ersatzkosten und Haltbarkeit ein – der Basis-Wartungssatz je Druckstunde wird daraus automatisch berechnet (Kosten ÷ Haltbarkeit), statt geschätzt zu werden. Gilt für alle Materialien gleichermaßen; der Aufschlag für anspruchsvollere Materialien kommt über die Materialgruppen unten oben drauf.</p>
+      <div id="wearPartList"></div>
+      <div class="empty" id="wearPartEmpty" style="display:none;">Noch keine Verschleißteile hinterlegt.</div>
+      <button class="add-btn" id="addWearPartBtn">+ Verschleißteil hinzufügen</button>
+      <div class="line" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line); font-weight:700;">
+        <span>Basis-Wartungssatz gesamt</span>
+        <span id="wearTotalDisplay">€0,00 / Std.</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Wartungskosten je Materialgruppe</h2>
+      <p class="hint">Zusätzlicher Wartungs-/Verschleiß-Aufschlag je Druckstunde, abgestuft nach Materialgruppe (z. B. höhere Nozzle-Abnutzung bei ABS/ASA oder CF/GF). Jedes Filament in den Stammdaten wird automatisch anhand seines Materials der passenden Gruppe zugeordnet – hier änderst du den Satz zentral für alle Filamente dieser Gruppe auf einmal.</p>
+      <div id="groupList"></div>
+    </div>
+
+    <div class="panel">
       <h2>Allgemeine Kosten</h2>
       <p class="hint">Diese Werte fließen automatisch in jede Kalkulation ein.</p>
-      <div class="row g2" style="margin-bottom:14px;">
+      <div class="row g2">
         <div class="field">
           <label>Strompreis (€ / kWh)</label>
           <input id="genStrompreis" type="number" min="0" step="0.01" placeholder="0,32">
@@ -105,14 +123,14 @@
           <input id="genLeistung" type="number" min="0" step="1" placeholder="150">
         </div>
       </div>
-      <div class="row g2">
-        <div class="field">
-          <label>Wartung & Verschleiß (€ / Druckstunde)</label>
-          <input id="genWartung" type="number" min="0" step="0.01" placeholder="0,50">
-        </div>
+      <div class="row g2" style="margin-top:12px;">
         <div class="field">
           <label>Arbeitskosten (€ / Stunde)</label>
           <input id="genArbeit" type="number" min="0" step="0.5" placeholder="20,00">
+        </div>
+        <div class="field">
+          <label>Wartung & Verschleiß (€ / Std., berechnet)</label>
+          <input id="genWartung" type="number" value="0" disabled style="opacity:0.6;">
         </div>
       </div>
       <div class="save-msg" id="genSaveMsg">Gespeichert.</div>
