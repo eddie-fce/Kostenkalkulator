@@ -25,16 +25,15 @@ const MATERIAL_TO_GROUP = {
   "PLA-CF":"CF/GF", "PETG-CF":"CF/GF", "PA-CF":"CF/GF", "PET-CF":"CF/GF", "PPA-CF":"CF/GF",
   "Sonstiges":"PC/PA"
 };
-// Sinnvolle Standard-€/h je Gruppe (danach in Stammdaten frei anpassbar)
-const GROUP_DEFAULTS = { "PLA":0, "PETG":0, "TPU":0, "ASA/ABS":0.15, "PC/PA":0.15, "CF/GF":0.40 };
+// Sinnvolle Standard-€/h je Gruppe – dies ist der VOLLSTÄNDIGE Wartungssatz (kein Zuschlag mehr), danach frei anpassbar
+const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "PC/PA":0.45, "CF/GF":0.70 };
 
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let allgemein = { strompreis:0.32, leistung:150, wartung:0.5, arbeit:20 };
+let allgemein = { strompreis:0.32, leistung:150, arbeit:20 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
-let wartungsteile = [];          // [{id, name, kosten, haltbarkeit}] – Basis-Wartungssatz wird daraus berechnet
-let materialgruppen = {};        // {"PLA": 0, "ASA/ABS": 0.15, ...} – Wartungskosten €/h je Materialgruppe
+let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
 let positionen = [];             // [{id, name, stueckzahl, druckzeit, arbeitszeit, slots:[{filamentId,gramm}x4]}]
 
 const $ = s => document.querySelector(s);
@@ -56,22 +55,6 @@ async function loadData(){
     mengenrabatt = t ? JSON.parse(t.value) : [];
   }catch(e){ mengenrabatt = []; }
   try{
-    const w = await storage.get('wartungsteile', false);
-    wartungsteile = w ? JSON.parse(w.value) : null;
-  }catch(e){ wartungsteile = null; }
-  if(wartungsteile === null){
-    // Erststart: sinnvolle Standard-Verschleißteile vorbelegen (Nozzle, Platte, Hotend, Platine, Schlauch, Rücklage)
-    wartungsteile = [
-      {id: uid('w'), name: 'Nozzle (Standard)', kosten: 5, haltbarkeit: 150},
-      {id: uid('w'), name: 'Druckplatte (PEI/Federstahl)', kosten: 30, haltbarkeit: 400},
-      {id: uid('w'), name: 'Hotend-Baugruppe', kosten: 15, haltbarkeit: 600},
-      {id: uid('w'), name: 'Platine/Mainboard (Rücklage)', kosten: 60, haltbarkeit: 1500},
-      {id: uid('w'), name: 'Filamentschlauch (PTFE/AMS)', kosten: 10, haltbarkeit: 600},
-      {id: uid('w'), name: 'Rücklage Unvorhergesehenes', kosten: 100, haltbarkeit: 700}
-    ];
-    saveWearParts();
-  }
-  try{
     const mg = await storage.get('materialgruppen', false);
     materialgruppen = mg ? JSON.parse(mg.value) : {};
   }catch(e){ materialgruppen = {}; }
@@ -83,7 +66,6 @@ async function loadData(){
   renderFilamentList();
   renderGeneralInputs();
   renderTierList();
-  renderWearParts();
   renderMaterialGroups();
   renderPositionen();
   updateTierHint();
@@ -102,10 +84,6 @@ async function saveAllgemein(){
 }
 async function saveTiers(){
   try{ await storage.set('mengenrabatt', JSON.stringify(mengenrabatt), false); }
-  catch(e){ console.error('Speichern fehlgeschlagen', e); }
-}
-async function saveWearParts(){
-  try{ await storage.set('wartungsteile', JSON.stringify(wartungsteile), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveMaterialGroups(){
@@ -209,7 +187,6 @@ $('#addFilamentBtn').addEventListener('click', ()=>{
 function renderGeneralInputs(){
   $('#genStrompreis').value = allgemein.strompreis;
   $('#genLeistung').value = allgemein.leistung;
-  $('#genWartung').value = allgemein.wartung;
   $('#genArbeit').value = allgemein.arbeit;
 }
 ['genStrompreis','genLeistung','genArbeit'].forEach(id=>{
@@ -219,75 +196,6 @@ function renderGeneralInputs(){
     allgemein.arbeit     = parseFloat($('#genArbeit').value)||0;
     saveAllgemein();
   });
-});
-
-// ---------- Stammdaten: Verschleißteile (Basis-Wartungssatz automatisch berechnet) ----------
-function wearPartRate(p){
-  const h = parseFloat(p.haltbarkeit);
-  return h > 0 ? (parseFloat(p.kosten)||0) / h : 0;
-}
-
-function recalcWearTotal(){
-  const total = wartungsteile.reduce((sum,p)=> sum + wearPartRate(p), 0);
-  allgemein.wartung = +total.toFixed(4);
-  $('#genWartung').value = allgemein.wartung.toFixed(2);
-  $('#wearTotalDisplay').textContent = `€${fmt(allgemein.wartung)} / Std.`;
-  saveAllgemein();
-}
-
-function renderWearParts(){
-  const box = $('#wearPartList');
-  box.innerHTML = '';
-  $('#wearPartEmpty').style.display = wartungsteile.length ? 'none' : 'block';
-
-  wartungsteile.forEach(p=>{
-    const row = document.createElement('div');
-    row.className = 'wear-row';
-    row.innerHTML = `
-      <div class="field">
-        <label>Verschleißteil</label>
-        <input data-id="${p.id}" data-field="name" value="${p.name||''}" placeholder="z. B. Nozzle">
-      </div>
-      <div class="field">
-        <label>Ersatzkosten €</label>
-        <input data-id="${p.id}" data-field="kosten" type="number" min="0" step="0.5" value="${p.kosten||0}">
-      </div>
-      <div class="field">
-        <label>Haltbarkeit (Std.)</label>
-        <input data-id="${p.id}" data-field="haltbarkeit" type="number" min="1" step="10" value="${p.haltbarkeit||1}">
-      </div>
-      <span class="perhour">€${fmt(wearPartRate(p))}/h</span>
-      <button class="icon-btn" data-del="${p.id}" title="Verschleißteil löschen">✕</button>
-    `;
-    box.appendChild(row);
-  });
-
-  box.querySelectorAll('[data-field]').forEach(el=>{
-    el.addEventListener('input', e=>{
-      const p = wartungsteile.find(x=>x.id===e.target.dataset.id);
-      const field = e.target.dataset.field;
-      p[field] = (field==='kosten'||field==='haltbarkeit') ? parseFloat(e.target.value)||0 : e.target.value;
-      saveWearParts();
-      recalcWearTotal();
-      if(field==='kosten' || field==='haltbarkeit') renderWearParts(); // €/h-Anzeige je Zeile aktualisieren
-    });
-  });
-  box.querySelectorAll('[data-del]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      wartungsteile = wartungsteile.filter(x=>x.id!==btn.dataset.del);
-      saveWearParts();
-      renderWearParts();
-      recalcWearTotal();
-    });
-  });
-
-  recalcWearTotal();
-}
-
-$('#addWearPartBtn').addEventListener('click', ()=>{
-  wartungsteile.push({id:uid('w'), name:'', kosten:10, haltbarkeit:300});
-  saveWearParts();
-  renderWearParts();
 });
 
 // ---------- Stammdaten: Wartungskosten je Materialgruppe ----------
@@ -730,14 +638,14 @@ function computeQuote(){
       return sum + (parseFloat(s.gramm)/1000) * f.preis;
     },0);
     const strom = (allgemein.leistung/1000) * druckzeit * allgemein.strompreis;
-    // Höchster Materialgruppen-Aufschlag der in dieser Position verwendeten Filamente
-    // (z. B. ABS/ASA oder CF/GF erhöhen die Nozzle-/Hotend-Abnutzung für die gesamte Druckzeit)
-    const zuschlagProStunde = usedSlots.reduce((max,s)=>{
+    // Wartungssatz je Druckstunde: höchster Gruppenpreis der in dieser Position verwendeten Filamente
+    // (z. B. CF/GF verschleißt die Nozzle stärker als PLA/PETG – der volle Gruppenpreis gilt für die gesamte Druckzeit)
+    const wartungssatz = usedSlots.reduce((max,s)=>{
       const f = filamente.find(x=>x.id===s.filamentId);
       const z = f ? (materialgruppen[groupOf(f.material)] ?? GROUP_DEFAULTS[groupOf(f.material)] ?? 0) : 0;
       return Math.max(max, z);
     }, 0);
-    const wartung = (allgemein.wartung + zuschlagProStunde) * druckzeit;
+    const wartung = wartungssatz * druckzeit;
     const arbeit = allgemein.arbeit * arbeitszeit;
     const subtotal = material+strom+wartung+arbeit;
 

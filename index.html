@@ -93,20 +93,8 @@
     </div>
 
     <div class="panel">
-      <h2>Verschleißteile (Basis-Wartungssatz)</h2>
-      <p class="hint">Trag hier deine tatsächlichen Verschleißteile mit Ersatzkosten und Haltbarkeit ein – der Basis-Wartungssatz je Druckstunde wird daraus automatisch berechnet (Kosten ÷ Haltbarkeit), statt geschätzt zu werden. Gilt für alle Materialien gleichermaßen; der Aufschlag für anspruchsvollere Materialien kommt über die Materialgruppen unten oben drauf.</p>
-      <div id="wearPartList"></div>
-      <div class="empty" id="wearPartEmpty" style="display:none;">Noch keine Verschleißteile hinterlegt.</div>
-      <button class="add-btn" id="addWearPartBtn">+ Verschleißteil hinzufügen</button>
-      <div class="line" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line); font-weight:700;">
-        <span>Basis-Wartungssatz gesamt</span>
-        <span id="wearTotalDisplay">€0,00 / Std.</span>
-      </div>
-    </div>
-
-    <div class="panel">
       <h2>Wartungskosten je Materialgruppe</h2>
-      <p class="hint">Zusätzlicher Wartungs-/Verschleiß-Aufschlag je Druckstunde, abgestuft nach Materialgruppe (z. B. höhere Nozzle-Abnutzung bei ABS/ASA oder CF/GF). Jedes Filament in den Stammdaten wird automatisch anhand seines Materials der passenden Gruppe zugeordnet – hier änderst du den Satz zentral für alle Filamente dieser Gruppe auf einmal.</p>
+      <p class="hint">Fester Wartungssatz je Druckstunde, direkt abgestuft nach Materialgruppe (deckt Nozzle, Druckplatte, Hotend, Schläuche etc. ab – höhere Sätze bei ABS/ASA wegen höherer Drucktemperatur, bei CF/GF wegen stärkerer Nozzle-Abnutzung). Jedes Filament in den Stammdaten wird automatisch anhand seines Materials der passenden Gruppe zugeordnet; der Satz dieser Gruppe fließt direkt und vollständig als Wartungskosten in die Kalkulation ein.</p>
       <div id="groupList"></div>
     </div>
 
@@ -127,10 +115,6 @@
         <div class="field">
           <label>Arbeitskosten (€ / Stunde)</label>
           <input id="genArbeit" type="number" min="0" step="0.5" placeholder="20,00">
-        </div>
-        <div class="field">
-          <label>Wartung & Verschleiß (€ / Std., berechnet)</label>
-          <input id="genWartung" type="number" value="0" disabled style="opacity:0.6;">
         </div>
       </div>
       <div class="save-msg" id="genSaveMsg">Gespeichert.</div>
