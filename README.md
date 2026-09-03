@@ -11,6 +11,7 @@ Keine Installation, kein Backend, kein Build-Schritt – reines HTML/CSS/JavaScr
   - Beliebig viele Drucker-Profile (Name, Leistung in Watt, AMS-fähig) – jede Position wird einem Drucker zugeordnet; nur AMS-fähige Drucker erlauben Multicolor ohne manuellen Filamentwechsel
   - Zubehör/Hardware (z. B. Gewindeeinsätze, Schrauben, Muttern) mit Preis pro Stück – wird als Kostenzeile innerhalb einer Position erfasst, nicht als eigene Position
   - Kundenliste (Name, Firma, Adresse, E-Mail, Telefon) – wird beim Speichern eines Angebots automatisch befüllt
+- **Kunden-Tab**: eigener Reiter mit allen Kunden alphabetisch sortiert (nur Namen in der Liste, mit Suche); Name anklicken zeigt Anschrift/Kontaktdaten, Kennzahlen (Anzahl Angebote, Gesamtumsatz, letztes Angebot) und alle zurückliegenden Angebote dieses Kunden zum direkten Laden
   - Positionsvorlagen (Filamente, Zubehör, Zeiten, Drucker) zum Wiederverwenden häufiger Produkte
   - Allgemeine Kosten: Strompreis (€/kWh), Wartung/Verschleiß (€/Druckstunde), Arbeitskosten (€/Stunde), Standard-Express-Zuschlag (%), Druckstunden/Tag/Drucker und Puffertage (Basis der Lieferterminschätzung)
   - Mengenrabatt-Stufen ("ab X Stück Y % Rabatt")

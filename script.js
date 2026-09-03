@@ -110,7 +110,7 @@ async function loadData(){
   renderFilamentList();
   renderDruckerList();
   renderZubehoerList();
-  renderKundenList();
+  renderKundenVerwaltung();
   renderKundenDatalist();
   renderVorlagenList();
   renderVorlageSelect();
@@ -181,6 +181,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     tab.classList.add('active');
     $('#view-'+tab.dataset.view).classList.add('active');
     if(tab.dataset.view==='kalk' && typeof refreshLivePreview==='function') refreshLivePreview();
+    if(tab.dataset.view==='kunden' && typeof renderKundenVerwaltung==='function') renderKundenVerwaltung();
   });
 });
 
@@ -365,74 +366,13 @@ $('#addZubehoerBtn').addEventListener('click', ()=>{
   renderZubehoerList();
 });
 
-// ---------- Stammdaten: Kunden ----------
-function renderKundenList(){
-  const box = $('#kundenList');
-  box.innerHTML = '';
-  $('#kundenEmpty').style.display = kunden.length ? 'none' : 'block';
-
-  kunden.forEach(k=>{
-    const row = document.createElement('div');
-    row.className = 'kunde-row';
-    row.innerHTML = `
-      <div class="krow-top">
-        <div class="row g2" style="flex:1;">
-          <div class="field">
-            <label>Name</label>
-            <input data-id="${k.id}" data-field="name" value="${k.name||''}">
-          </div>
-          <div class="field">
-            <label>Firma</label>
-            <input data-id="${k.id}" data-field="firma" value="${k.firma||''}">
-          </div>
-        </div>
-        <button class="icon-btn" data-del="${k.id}" title="Kunde löschen">✕</button>
-      </div>
-      <div class="row g3">
-        <div class="field">
-          <label>E-Mail</label>
-          <input data-id="${k.id}" data-field="email" type="email" value="${k.email||''}">
-        </div>
-        <div class="field">
-          <label>Telefon</label>
-          <input data-id="${k.id}" data-field="telefon" value="${k.telefon||''}">
-        </div>
-        <div class="field">
-          <label>Adresse</label>
-          <input data-id="${k.id}" data-field="adresse" value="${k.adresse||''}">
-        </div>
-      </div>
-    `;
-    box.appendChild(row);
-  });
-
-  box.querySelectorAll('[data-field]').forEach(el=>{
-    el.addEventListener('input', e=>{
-      const k = kunden.find(x=>x.id===e.target.dataset.id);
-      k[e.target.dataset.field] = e.target.value;
-      saveKunden();
-      renderKundenDatalist();
-    });
-  });
-  box.querySelectorAll('[data-del]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      kunden = kunden.filter(x=>x.id!==btn.dataset.del);
-      saveKunden();
-      renderKundenList();
-      renderKundenDatalist();
-    });
-  });
-}
+// ---------- Kundenverwaltung (eigener Tab) ----------
+let kundenVerwaltungOpen = new Set(); // IDs der aufgeklappten Kunden (nur zur Laufzeit)
+let kundenSucheText = '';
 
 function renderKundenDatalist(){
   $('#kundenDatalist').innerHTML = kunden.map(k=>`<option value="${(k.name||'').replace(/"/g,'&quot;')}">`).join('');
 }
-
-$('#addKundeBtn').addEventListener('click', ()=>{
-  kunden.push({id:uid('k'), name:'', firma:'', email:'', telefon:'', adresse:''});
-  saveKunden();
-  renderKundenList();
-});
 
 $('#kundeName').addEventListener('input', ()=>{
   const name = $('#kundeName').value.trim();
@@ -460,10 +400,150 @@ function upsertKunde(){
   if(k){ Object.assign(k, data); }
   else { k = Object.assign({id:uid('k')}, data); kunden.push(k); }
   saveKunden();
-  renderKundenList();
+  renderKundenVerwaltung();
   renderKundenDatalist();
   return k;
 }
+
+// Angebote, Gesamtumsatz und letztes Angebot für einen Kunden (Namensabgleich, case-insensitive)
+function kundeStats(k){
+  const name = (k.name||'').trim().toLowerCase();
+  const matches = name ? angebote.filter(a => a.kunde && (a.kunde.name||'').trim().toLowerCase() === name) : [];
+  const summe = matches.reduce((s,a)=> s + (a.ergebnis && a.ergebnis.gesamt || 0), 0);
+  return {matches, summe, letztes: matches.length ? matches[matches.length-1] : null};
+}
+
+function renderKundenVerwaltung(){
+  const box = $('#kundenVerwaltungList');
+  box.innerHTML = '';
+  const q = kundenSucheText.trim().toLowerCase();
+  const list = kunden
+    .filter(k => !q || (k.name||'').toLowerCase().includes(q) || (k.firma||'').toLowerCase().includes(q))
+    .sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', {sensitivity:'base'}));
+  $('#kundenVerwaltungEmpty').style.display = list.length ? 'none' : 'block';
+
+  list.forEach(k=>{
+    const {matches, summe, letztes} = kundeStats(k);
+    const row = document.createElement('div');
+    row.className = 'kv-row' + (kundenVerwaltungOpen.has(k.id) ? ' open' : '');
+    row.innerHTML = `
+      <div class="kv-head" data-toggle="${k.id}">
+        <div><span class="kv-name">${k.name || 'Ohne Namen'}</span>${k.firma?`<span class="kv-meta"> · ${k.firma}</span>`:''}</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="kv-meta">${matches.length} Angebot(e)${matches.length?' · '+fmt(summe)+' €':''}</span>
+          <span class="kv-chevron">▶</span>
+        </div>
+      </div>
+      <div class="kv-body">
+        <div class="row g3">
+          <div class="field">
+            <label>Name</label>
+            <input data-kv="${k.id}" data-field="name" value="${k.name||''}">
+          </div>
+          <div class="field">
+            <label>Firma</label>
+            <input data-kv="${k.id}" data-field="firma" value="${k.firma||''}">
+          </div>
+          <div class="field">
+            <label>Telefon</label>
+            <input data-kv="${k.id}" data-field="telefon" value="${k.telefon||''}">
+          </div>
+        </div>
+        <div class="row g2" style="margin-top:12px;">
+          <div class="field">
+            <label>E-Mail</label>
+            <input data-kv="${k.id}" data-field="email" type="email" value="${k.email||''}">
+          </div>
+          <div class="field">
+            <label>Anschrift</label>
+            <input data-kv="${k.id}" data-field="adresse" value="${k.adresse||''}" placeholder="Straße, PLZ Ort">
+          </div>
+        </div>
+        <div class="kv-stats">
+          <span>Angebote gesamt: <b>${matches.length}</b></span>
+          <span>Gesamtumsatz: <b>${fmt(summe)} €</b></span>
+          <span>Letztes Angebot: <b>${letztes ? letztes.nummer+' ('+letztes.datum+')' : '–'}</b></span>
+        </div>
+        <div class="btn-row" style="margin-bottom:4px;">
+          <button class="ghost-btn" data-newangebot="${k.id}">+ Neues Angebot für diesen Kunden</button>
+          <button class="icon-btn" data-delkv="${k.id}" title="Kunde löschen">✕</button>
+        </div>
+        ${matches.length ? '<div class="slot-title" style="margin-top:10px;">ZURÜCKLIEGENDE ANGEBOTE</div>' : ''}
+        ${[...matches].reverse().map(a=>`
+          <div class="kv-angebot-row">
+            <span>${a.nummer} · ${a.datum} · ${a.ergebnis.sumStueckzahl} Stk.</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <b style="color:var(--accent);">${fmt(a.ergebnis.gesamt)} €</b>
+              <button class="ghost-btn" data-kvload="${a.id}">Laden</button>
+            </span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-toggle]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = el.dataset.toggle;
+      if(kundenVerwaltungOpen.has(id)) kundenVerwaltungOpen.delete(id); else kundenVerwaltungOpen.add(id);
+      renderKundenVerwaltung();
+    });
+  });
+  box.querySelectorAll('[data-field]').forEach(el=>{
+    el.addEventListener('click', e=> e.stopPropagation());
+    el.addEventListener('input', e=>{
+      const k = kunden.find(x=>x.id===e.target.dataset.kv);
+      k[e.target.dataset.field] = e.target.value;
+      saveKunden();
+      renderKundenDatalist();
+    });
+  });
+  box.querySelectorAll('[data-delkv]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(!confirm('Kunde wirklich löschen? Bereits gespeicherte Angebote bleiben im Archiv erhalten.')) return;
+      kunden = kunden.filter(x=>x.id!==btn.dataset.delkv);
+      kundenVerwaltungOpen.delete(btn.dataset.delkv);
+      saveKunden();
+      renderKundenVerwaltung();
+      renderKundenDatalist();
+    });
+  });
+  box.querySelectorAll('[data-newangebot]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const k = kunden.find(x=>x.id===btn.dataset.newangebot);
+      if(!k) return;
+      $('#kundeName').value = k.name||'';
+      $('#kundeFirma').value = k.firma||'';
+      $('#kundeEmail').value = k.email||'';
+      $('#kundeTelefon').value = k.telefon||'';
+      $('#kundeAdresse').value = k.adresse||'';
+      document.querySelector('.tab[data-view="kalk"]').click();
+    });
+  });
+  box.querySelectorAll('[data-kvload]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      loadAngebotInForm(angebote.find(x=>x.id===btn.dataset.kvload));
+    });
+  });
+}
+
+$('#addKundeVerwaltungBtn').addEventListener('click', ()=>{
+  const neu = {id:uid('k'), name:'Neuer Kunde', firma:'', email:'', telefon:'', adresse:''};
+  kunden.push(neu);
+  kundenVerwaltungOpen.add(neu.id);
+  saveKunden();
+  renderKundenVerwaltung();
+  renderKundenDatalist();
+});
+
+$('#kundenSuche').addEventListener('input', ()=>{
+  kundenSucheText = $('#kundenSuche').value;
+  renderKundenVerwaltung();
+});
 
 // ---------- Stammdaten: Allgemeine Kosten ----------
 function renderGeneralInputs(){
@@ -1483,6 +1563,34 @@ function nextAngebotsNummer(){
   return `A-${jahr}-${String(angebotsCounter).padStart(3,'0')}`;
 }
 
+// Lädt ein gespeichertes Angebot zum Weiterbearbeiten in die Kalkulation (Archiv + Kunden-Tab)
+function loadAngebotInForm(a){
+  if(!a) return;
+  positionen = JSON.parse(JSON.stringify(a.positionen));
+  positionen.forEach(p=>{
+    if(!p.druckerId || !drucker.some(d=>d.id===p.druckerId)) p.druckerId = drucker[0] ? drucker[0].id : '';
+    if(!p.zubehoerItems) p.zubehoerItems = [];
+  });
+  $('#jobName').value = a.jobName || '';
+  $('#angebotsNr').value = a.nummer;
+  $('#gueltigBis').value = a.gueltigBis || '';
+  $('#liefertermin').value = a.liefertermin || '';
+  $('#margin').value = a.margin;
+  $('#extraDiscount').value = a.extraDiscount;
+  $('#express').checked = !!a.express;
+  $('#expressPct').value = a.expressPct || allgemein.expressPct;
+  const k = a.kunde || {};
+  $('#kundeName').value = k.name || '';
+  $('#kundeFirma').value = k.firma || '';
+  $('#kundeEmail').value = k.email || '';
+  $('#kundeTelefon').value = k.telefon || '';
+  $('#kundeAdresse').value = k.adresse || '';
+  renderPositionen();
+  updateTierHint();
+  refreshLivePreview();
+  document.querySelector('.tab[data-view="kalk"]').click();
+}
+
 function renderArchiv(){
   const box = $('#archivList');
   box.innerHTML = '';
@@ -1509,33 +1617,7 @@ function renderArchiv(){
   });
 
   box.querySelectorAll('[data-load]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const a = angebote.find(x=>x.id===btn.dataset.load);
-      if(!a) return;
-      positionen = JSON.parse(JSON.stringify(a.positionen));
-      positionen.forEach(p=>{
-        if(!p.druckerId || !drucker.some(d=>d.id===p.druckerId)) p.druckerId = drucker[0] ? drucker[0].id : '';
-        if(!p.zubehoerItems) p.zubehoerItems = [];
-      });
-      $('#jobName').value = a.jobName || '';
-      $('#angebotsNr').value = a.nummer;
-      $('#gueltigBis').value = a.gueltigBis || '';
-      $('#liefertermin').value = a.liefertermin || '';
-      $('#margin').value = a.margin;
-      $('#extraDiscount').value = a.extraDiscount;
-      $('#express').checked = !!a.express;
-      $('#expressPct').value = a.expressPct || allgemein.expressPct;
-      const k = a.kunde || {};
-      $('#kundeName').value = k.name || '';
-      $('#kundeFirma').value = k.firma || '';
-      $('#kundeEmail').value = k.email || '';
-      $('#kundeTelefon').value = k.telefon || '';
-      $('#kundeAdresse').value = k.adresse || '';
-      renderPositionen();
-      updateTierHint();
-      refreshLivePreview();
-      document.querySelector('.tab[data-view="kalk"]').click();
-    });
+    btn.addEventListener('click', ()=> loadAngebotInForm(angebote.find(x=>x.id===btn.dataset.load)));
   });
   box.querySelectorAll('[data-csv]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1560,6 +1642,7 @@ function renderArchiv(){
       angebote = angebote.filter(x=>x.id!==btn.dataset.delA);
       saveAngebote();
       renderArchiv();
+      renderKundenVerwaltung();
     });
   });
 }
@@ -1592,6 +1675,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
   saveAngebotsCounter();
   saveAngebote();
   renderArchiv();
+  renderKundenVerwaltung();
   alert(`Angebot ${nummer} gespeichert (${fmt(q.gesamt)} €). Im Archiv abrufbar.`);
 });
 
@@ -1631,7 +1715,7 @@ $('#backupFile').addEventListener('change', async e=>{
 
     await Promise.all([saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveVorlagen()]);
     renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
-    renderDruckerList(); renderZubehoerList(); renderKundenList(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
+    renderDruckerList(); renderZubehoerList(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){
     msg.innerHTML = `<div class="import-msg warn">Backup konnte nicht gelesen werden: ${err.message}</div>`;

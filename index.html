@@ -20,7 +20,8 @@
   <div class="tabs">
     <div class="tab active" data-view="kalk"><span class="n">01</span>Kalkulation</div>
     <div class="tab" data-view="archiv"><span class="n">02</span>Archiv</div>
-    <div class="tab" data-view="stamm"><span class="n">03</span>Stammdaten</div>
+    <div class="tab" data-view="kunden"><span class="n">03</span>Kunden</div>
+    <div class="tab" data-view="stamm"><span class="n">04</span>Stammdaten</div>
   </div>
 
   <!-- ===================== KALKULATION ===================== -->
@@ -162,6 +163,21 @@
     </div>
   </div>
 
+  <!-- ===================== KUNDEN ===================== -->
+  <div class="view" id="view-kunden">
+    <div class="panel">
+      <h2>Kundenverwaltung</h2>
+      <p class="hint">Alphabetisch sortiert. Name anklicken für Anschrift, Kontaktdaten, Kennzahlen und zurückliegende Angebote.</p>
+      <div class="field" style="margin-bottom:14px;">
+        <label>Suche</label>
+        <input id="kundenSuche" placeholder="Name oder Firma…">
+      </div>
+      <div id="kundenVerwaltungList"></div>
+      <div class="empty" id="kundenVerwaltungEmpty" style="display:none;">Noch keine Kunden hinterlegt.</div>
+      <button class="add-btn" id="addKundeVerwaltungBtn">+ Kunde hinzufügen</button>
+    </div>
+  </div>
+
   <!-- ===================== STAMMDATEN ===================== -->
   <div class="view" id="view-stamm">
 
@@ -267,14 +283,6 @@
         <input id="genMwst" type="number" min="0" step="1" placeholder="19" style="max-width:160px;">
       </div>
       <p class="hint" style="margin-top:10px; margin-bottom:0;">Diese Angabe ersetzt keine steuerliche Beratung – im Zweifel mit Steuerberater:in abstimmen.</p>
-    </div>
-
-    <div class="panel">
-      <h2>Kunden</h2>
-      <p class="hint">Wird automatisch befüllt, sobald im Auftrag ein neuer Kundenname gespeichert wird. Hier auch manuell anlegen, bearbeiten oder löschen möglich.</p>
-      <div id="kundenList"></div>
-      <div class="empty" id="kundenEmpty" style="display:none;">Noch keine Kunden hinterlegt.</div>
-      <button class="add-btn" id="addKundeBtn">+ Kunde hinzufügen</button>
     </div>
 
     <div class="panel">
