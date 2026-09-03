@@ -6,6 +6,8 @@
 <title>Druckkalkulator</title>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -44,6 +46,36 @@
     </div>
 
     <div class="panel">
+      <h2>Kunde</h2>
+      <p class="hint">Name eingeben oder aus der Liste wählen – restliche Felder füllen sich automatisch, bleiben aber editierbar. Neue Kunden werden beim Speichern des Angebots automatisch in die Kundenliste übernommen.</p>
+      <div class="row g3">
+        <div class="field">
+          <label>Name</label>
+          <input id="kundeName" list="kundenDatalist" placeholder="z. B. Max Müller">
+          <datalist id="kundenDatalist"></datalist>
+        </div>
+        <div class="field">
+          <label>Firma (optional)</label>
+          <input id="kundeFirma">
+        </div>
+        <div class="field">
+          <label>E-Mail</label>
+          <input id="kundeEmail" type="email" placeholder="kunde@beispiel.de">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Adresse</label>
+          <input id="kundeAdresse" placeholder="Straße, PLZ Ort">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input id="kundeTelefon">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
       <h2>Positionen (Produkte)</h2>
       <p class="hint">Bis zu 4 Filamente je Position kombinieren. Menge/Zeit gelten für die gesamte Position (alle Stück zusammen).</p>
       <div class="btn-row" style="margin-bottom:14px;">
@@ -51,12 +83,38 @@
         <button class="ghost-btn" id="mf3ImportBtn">⇪ Gesliste .gcode.3mf importieren</button>
         <input type="file" id="gcodeFile" accept=".gcode,.gco,.g" style="display:none;">
         <button class="ghost-btn" id="gcodeImportBtn">⇪ G-Code importieren</button>
+        <select id="vorlageSelect" style="max-width:220px; width:auto;">
+          <option value="">Vorlage wählen…</option>
+        </select>
+        <button class="ghost-btn" id="vorlageLadenBtn">+ Als Position laden</button>
       </div>
       <div id="mf3Msg"></div>
       <div id="positionList"></div>
       <div class="btn-row">
         <button class="add-btn" id="addPositionBtn">+ Position hinzufügen</button>
         <button class="ghost-btn" id="clearPositionsBtn">Alle Positionen leeren</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Liefertermin & Express</h2>
+      <p class="hint" id="terminHint">Schätzung basiert auf Gesamt-Druckzeit aller Positionen, Anzahl Drucker und den in den Stammdaten hinterlegten Puffertagen.</p>
+      <div class="row g3">
+        <div class="field">
+          <label>Voraussichtlicher Liefertermin</label>
+          <input id="liefertermin" type="date">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="ghost-btn" id="terminSchaetzenBtn" type="button" style="width:100%;">🔮 Termin schätzen</button>
+        </div>
+        <div class="field">
+          <label style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:13px; color:var(--text); cursor:pointer; margin-top:9px;">
+            <input type="checkbox" id="express" style="width:auto;">
+            Express-Auftrag, Zuschlag (%)
+          </label>
+          <input id="expressPct" type="number" min="0" max="100" step="1" value="0" style="margin-top:6px;">
+        </div>
       </div>
     </div>
 
@@ -82,10 +140,12 @@
 
     <div class="btn-row">
       <button class="calc-btn" id="calcBtn" style="flex:2;">Kosten berechnen</button>
-      <button class="ghost-btn" id="exportCsvBtn" style="flex:1;">⇩ Als CSV-Angebot exportieren</button>
+      <button class="ghost-btn" id="exportCsvBtn" style="flex:1;">⇩ CSV</button>
+      <button class="ghost-btn" id="exportPdfBtn" style="flex:1;">⇩ PDF</button>
     </div>
     <div class="btn-row" style="margin-top:10px;">
       <button class="add-btn" id="saveAngebotBtn" style="flex:1;">💾 Angebot im Archiv speichern</button>
+      <button class="ghost-btn" id="mailAngebotBtn" style="flex:1;">✉ Per E-Mail senden</button>
     </div>
 
     <div class="panel result" id="resultPanel" style="display:none;"></div>
@@ -114,6 +174,22 @@
     </div>
 
     <div class="panel">
+      <h2>Drucker</h2>
+      <p class="hint">Jede Position wird einem Drucker zugeordnet. Die Leistung (Watt) bestimmt die Stromkosten der Position; nur AMS-fähige Drucker erlauben mehrere Filamente (Multicolor) je Position ohne manuellen Filamentwechsel.</p>
+      <div id="druckerList"></div>
+      <div class="empty" id="druckerEmpty" style="display:none;">Noch keine Drucker hinterlegt.</div>
+      <button class="add-btn" id="addDruckerBtn">+ Drucker hinzufügen</button>
+    </div>
+
+    <div class="panel">
+      <h2>Zubehör (Gewindeeinsätze, Schrauben, Muttern, …)</h2>
+      <p class="hint">Zubehör, das Positionen beigelegt oder eingeschmolzen wird – wird als eigene Kostenzeile innerhalb einer Position erfasst, nicht als eigene Position.</p>
+      <div id="zubehoerList"></div>
+      <div class="empty" id="zubehoerEmpty" style="display:none;">Noch kein Zubehör hinterlegt.</div>
+      <button class="add-btn" id="addZubehoerBtn">+ Zubehör hinzufügen</button>
+    </div>
+
+    <div class="panel">
       <h2>Mengenrabatt-Stufen</h2>
       <p class="hint">Ab welcher Gesamt-Stückzahl im Auftrag automatisch wie viel Rabatt gewährt wird.</p>
       <div id="tierList"></div>
@@ -136,25 +212,21 @@
           <input id="genStrompreis" type="number" min="0" step="0.01" placeholder="0,32">
         </div>
         <div class="field">
-          <label>Druckerleistung (Watt)</label>
-          <input id="genLeistung" type="number" min="0" step="1" placeholder="150">
-        </div>
-      </div>
-      <div class="row g2" style="margin-top:12px;">
-        <div class="field">
           <label>Arbeitskosten (€ / Stunde)</label>
           <input id="genArbeit" type="number" min="0" step="0.5" placeholder="20,00">
         </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
         <div class="field">
           <label title="Wird automatisch als Arbeitszeit ergänzt, wenn eine Position mehr als 1 Filament nutzt (AMS-Multicolor)">AMS-Rüstzuschlag (Minuten)</label>
           <input id="genAmsRuest" type="number" min="0" step="1" placeholder="10">
         </div>
-      </div>
-      <div class="row g2" style="margin-top:12px;">
         <div class="field">
           <label title="Prozentualer Aufschlag auf die Zwischensumme für Fehldrucke/Nacharbeit">Ausschuss-Puffer (%)</label>
           <input id="genAusschuss" type="number" min="0" step="0.5" placeholder="5">
         </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
         <div class="field">
           <label>Preis-Rundung auf (€)</label>
           <select id="genRundung">
@@ -163,6 +235,20 @@
             <option value="0.50">0,50 €</option>
             <option value="1">1,00 €</option>
           </select>
+        </div>
+        <div class="field">
+          <label title="Standardwert für den Express-Zuschlag, beim Anlegen eines Auftrags vorausgefüllt">Standard Express-Zuschlag (%)</label>
+          <input id="genExpressPct" type="number" min="0" max="100" step="1" placeholder="25">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label title="Wie viele Stunden pro Tag realistisch gedruckt werden können (über alle Drucker zusammen je Drucker) – Basis für die Lieferterminschätzung">Druckstunden / Tag / Drucker</label>
+          <input id="genStdProTag" type="number" min="1" step="1" placeholder="16">
+        </div>
+        <div class="field">
+          <label title="Zusätzliche Pufferzeit für Nachbearbeitung, Versandvorbereitung etc.">Puffertage (Liefertermin)</label>
+          <input id="genPufferTage" type="number" min="0" step="1" placeholder="2">
         </div>
       </div>
       <div class="save-msg" id="genSaveMsg">Gespeichert.</div>
@@ -181,6 +267,21 @@
         <input id="genMwst" type="number" min="0" step="1" placeholder="19" style="max-width:160px;">
       </div>
       <p class="hint" style="margin-top:10px; margin-bottom:0;">Diese Angabe ersetzt keine steuerliche Beratung – im Zweifel mit Steuerberater:in abstimmen.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Kunden</h2>
+      <p class="hint">Wird automatisch befüllt, sobald im Auftrag ein neuer Kundenname gespeichert wird. Hier auch manuell anlegen, bearbeiten oder löschen möglich.</p>
+      <div id="kundenList"></div>
+      <div class="empty" id="kundenEmpty" style="display:none;">Noch keine Kunden hinterlegt.</div>
+      <button class="add-btn" id="addKundeBtn">+ Kunde hinzufügen</button>
+    </div>
+
+    <div class="panel">
+      <h2>Positionsvorlagen</h2>
+      <p class="hint">Über „💾“ an einer Position in der Kalkulation gespeichert (Filamente, Zubehör, Zeiten, Drucker). Über „Vorlage wählen“ in der Kalkulation als neue Position laden.</p>
+      <div id="vorlagenList"></div>
+      <div class="empty" id="vorlagenEmpty" style="display:none;">Noch keine Vorlagen gespeichert.</div>
     </div>
 
     <div class="panel">
