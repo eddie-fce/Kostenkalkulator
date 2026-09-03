@@ -17,7 +17,8 @@
 
   <div class="tabs">
     <div class="tab active" data-view="kalk"><span class="n">01</span>Kalkulation</div>
-    <div class="tab" data-view="stamm"><span class="n">02</span>Stammdaten</div>
+    <div class="tab" data-view="archiv"><span class="n">02</span>Archiv</div>
+    <div class="tab" data-view="stamm"><span class="n">03</span>Stammdaten</div>
   </div>
 
   <!-- ===================== KALKULATION ===================== -->
@@ -26,9 +27,19 @@
     <div class="panel">
       <h2>Auftrag</h2>
       <p class="hint">Ein Auftrag kann mehrere Produkte (Positionen) enthalten.</p>
-      <div class="field">
-        <label>Auftragsbezeichnung (optional)</label>
-        <input id="jobName" placeholder="z. B. Angebot Kunde Müller">
+      <div class="row g3">
+        <div class="field">
+          <label>Auftragsbezeichnung (optional)</label>
+          <input id="jobName" placeholder="z. B. Angebot Kunde Müller">
+        </div>
+        <div class="field">
+          <label>Angebots-Nr.</label>
+          <input id="angebotsNr" value="wird beim Speichern vergeben" disabled style="opacity:0.6;">
+        </div>
+        <div class="field">
+          <label>Angebot gültig bis</label>
+          <input id="gueltigBis" type="date">
+        </div>
       </div>
     </div>
 
@@ -64,13 +75,31 @@
       </div>
     </div>
 
+    <div class="live-preview" id="livePreview">
+      <span>Live-Vorschau</span>
+      <strong id="livePreviewValue">€0,00</strong>
+    </div>
+
     <div class="btn-row">
       <button class="calc-btn" id="calcBtn" style="flex:2;">Kosten berechnen</button>
       <button class="ghost-btn" id="exportCsvBtn" style="flex:1;">⇩ Als CSV-Angebot exportieren</button>
     </div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="add-btn" id="saveAngebotBtn" style="flex:1;">💾 Angebot im Archiv speichern</button>
+    </div>
 
     <div class="panel result" id="resultPanel" style="display:none;"></div>
 
+  </div>
+
+  <!-- ===================== ARCHIV ===================== -->
+  <div class="view" id="view-archiv">
+    <div class="panel">
+      <h2>Gespeicherte Angebote</h2>
+      <p class="hint">Gespeicherte Angebote behalten den Preis von damals (auch wenn sich später Filamentpreise o. ä. ändern). „Laden“ öffnet die Positionen zum Weiterbearbeiten in der Kalkulation.</p>
+      <div id="archivList"></div>
+      <div class="empty" id="archivEmpty" style="display:none;">Noch keine Angebote gespeichert.</div>
+    </div>
   </div>
 
   <!-- ===================== STAMMDATEN ===================== -->
@@ -116,8 +145,53 @@
           <label>Arbeitskosten (€ / Stunde)</label>
           <input id="genArbeit" type="number" min="0" step="0.5" placeholder="20,00">
         </div>
+        <div class="field">
+          <label title="Wird automatisch als Arbeitszeit ergänzt, wenn eine Position mehr als 1 Filament nutzt (AMS-Multicolor)">AMS-Rüstzuschlag (Minuten)</label>
+          <input id="genAmsRuest" type="number" min="0" step="1" placeholder="10">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label title="Prozentualer Aufschlag auf die Zwischensumme für Fehldrucke/Nacharbeit">Ausschuss-Puffer (%)</label>
+          <input id="genAusschuss" type="number" min="0" step="0.5" placeholder="5">
+        </div>
+        <div class="field">
+          <label>Preis-Rundung auf (€)</label>
+          <select id="genRundung">
+            <option value="0.01">Keine (Cent-genau)</option>
+            <option value="0.10">0,10 €</option>
+            <option value="0.50">0,50 €</option>
+            <option value="1">1,00 €</option>
+          </select>
+        </div>
       </div>
       <div class="save-msg" id="genSaveMsg">Gespeichert.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Umsatzsteuer</h2>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:13px; color:var(--text); cursor:pointer;">
+          <input type="checkbox" id="genKleinunternehmer" style="width:auto;">
+          Kleinunternehmer nach §19 UStG (keine Umsatzsteuer wird berechnet/ausgewiesen)
+        </label>
+      </div>
+      <div class="field" id="mwstFieldWrap" style="margin-top:12px;">
+        <label>Umsatzsteuersatz (%)</label>
+        <input id="genMwst" type="number" min="0" step="1" placeholder="19" style="max-width:160px;">
+      </div>
+      <p class="hint" style="margin-top:10px; margin-bottom:0;">Diese Angabe ersetzt keine steuerliche Beratung – im Zweifel mit Steuerberater:in abstimmen.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Stammdaten-Backup</h2>
+      <p class="hint">Alle Stammdaten (Filamente, Materialgruppen, Mengenrabatt, allgemeine Einstellungen) als Datei sichern oder wiederherstellen – z. B. bei Gerätewechsel oder zur Übertragung an den zweiten Drucker/Kollegen.</p>
+      <div class="btn-row">
+        <input type="file" id="backupFile" accept=".json" style="display:none;">
+        <button class="ghost-btn" id="exportBackupBtn">⇩ Backup exportieren</button>
+        <button class="ghost-btn" id="importBackupBtn">⇪ Backup importieren</button>
+      </div>
+      <div id="backupMsg"></div>
     </div>
 
   </div>

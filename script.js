@@ -31,10 +31,12 @@ const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "P
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let allgemein = { strompreis:0.32, leistung:150, arbeit:20 };
+let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
 let positionen = [];             // [{id, name, stueckzahl, druckzeit, arbeitszeit, slots:[{filamentId,gramm}x4]}]
+let angebote = [];               // [{id, nummer, datum, gueltigBis, jobName, positionen, margin, extraDiscount, ergebnis}]
+let angebotsCounter = 0;
 
 const $ = s => document.querySelector(s);
 const fmt = n => n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -48,7 +50,7 @@ async function loadData(){
   }catch(e){ filamente = []; }
   try{
     const g = await storage.get('allgemein', false);
-    if(g) allgemein = JSON.parse(g.value);
+    if(g) allgemein = Object.assign({}, allgemein, JSON.parse(g.value)); // mit Defaults mergen, falls neue Felder fehlen
   }catch(e){ /* Standardwerte bleiben */ }
   try{
     const t = await storage.get('mengenrabatt', false);
@@ -60,15 +62,29 @@ async function loadData(){
   }catch(e){ materialgruppen = {}; }
   // Fehlende Gruppen (z. B. bei erstem Start oder neuer Version) mit sinnvollen Defaults auffüllen
   GROUP_KEYS.forEach(g=>{ if(materialgruppen[g] === undefined) materialgruppen[g] = GROUP_DEFAULTS[g]; });
+  try{
+    const a = await storage.get('angebote', false);
+    angebote = a ? JSON.parse(a.value) : [];
+  }catch(e){ angebote = []; }
+  try{
+    const c = await storage.get('angebotsCounter', false);
+    angebotsCounter = c ? parseInt(c.value)||0 : 0;
+  }catch(e){ angebotsCounter = 0; }
 
   if(!positionen.length) addPosition();
+
+  // Standard-Gültigkeit: heute + 14 Tage
+  const d = new Date(); d.setDate(d.getDate()+14);
+  $('#gueltigBis').value = d.toISOString().slice(0,10);
 
   renderFilamentList();
   renderGeneralInputs();
   renderTierList();
   renderMaterialGroups();
   renderPositionen();
+  renderArchiv();
   updateTierHint();
+  refreshLivePreview();
   $('#statusline').textContent = 'bereit';
 }
 
@@ -90,6 +106,14 @@ async function saveMaterialGroups(){
   try{ await storage.set('materialgruppen', JSON.stringify(materialgruppen), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
+async function saveAngebote(){
+  try{ await storage.set('angebote', JSON.stringify(angebote), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveAngebotsCounter(){
+  try{ await storage.set('angebotsCounter', String(angebotsCounter), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
 function flashSaved(){
   const el = $('#genSaveMsg');
   el.classList.add('show');
@@ -104,6 +128,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     tab.classList.add('active');
     $('#view-'+tab.dataset.view).classList.add('active');
+    if(tab.dataset.view==='kalk' && typeof refreshLivePreview==='function') refreshLivePreview();
   });
 });
 
@@ -188,14 +213,35 @@ function renderGeneralInputs(){
   $('#genStrompreis').value = allgemein.strompreis;
   $('#genLeistung').value = allgemein.leistung;
   $('#genArbeit').value = allgemein.arbeit;
+  $('#genAmsRuest').value = allgemein.amsRuestMin;
+  $('#genAusschuss').value = allgemein.ausschussPct;
+  $('#genRundung').value = String(allgemein.rundung);
+  $('#genKleinunternehmer').checked = !!allgemein.kleinunternehmer;
+  $('#genMwst').value = allgemein.mwst;
+  $('#mwstFieldWrap').style.display = allgemein.kleinunternehmer ? 'none' : 'block';
 }
-['genStrompreis','genLeistung','genArbeit'].forEach(id=>{
+['genStrompreis','genLeistung','genArbeit','genAmsRuest','genAusschuss','genMwst'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
-    allgemein.strompreis = parseFloat($('#genStrompreis').value)||0;
-    allgemein.leistung   = parseFloat($('#genLeistung').value)||0;
-    allgemein.arbeit     = parseFloat($('#genArbeit').value)||0;
+    allgemein.strompreis  = parseFloat($('#genStrompreis').value)||0;
+    allgemein.leistung    = parseFloat($('#genLeistung').value)||0;
+    allgemein.arbeit      = parseFloat($('#genArbeit').value)||0;
+    allgemein.amsRuestMin = parseFloat($('#genAmsRuest').value)||0;
+    allgemein.ausschussPct= parseFloat($('#genAusschuss').value)||0;
+    allgemein.mwst         = parseFloat($('#genMwst').value)||0;
     saveAllgemein();
+    refreshLivePreview();
   });
+});
+$('#genRundung').addEventListener('change', ()=>{
+  allgemein.rundung = parseFloat($('#genRundung').value)||0.01;
+  saveAllgemein();
+  refreshLivePreview();
+});
+$('#genKleinunternehmer').addEventListener('change', ()=>{
+  allgemein.kleinunternehmer = $('#genKleinunternehmer').checked;
+  $('#mwstFieldWrap').style.display = allgemein.kleinunternehmer ? 'none' : 'block';
+  saveAllgemein();
+  refreshLivePreview();
 });
 
 // ---------- Stammdaten: Wartungskosten je Materialgruppe ----------
@@ -354,6 +400,7 @@ function renderPositionen(){
       const field = e.target.dataset.pfield;
       pos[field] = (field==='stueckzahl'||field==='druckzeit'||field==='arbeitszeit') ? e.target.value : e.target.value;
       if(field==='stueckzahl') updateTierHint();
+      refreshLivePreview();
     });
   });
   box.querySelectorAll('[data-delpos]').forEach(btn=>{
@@ -362,6 +409,7 @@ function renderPositionen(){
       if(!positionen.length) addPosition();
       renderPositionen();
       updateTierHint();
+      refreshLivePreview();
     });
   });
 
@@ -400,6 +448,7 @@ function renderSlotsForPosition(pos, container){
       const field = e.target.dataset.sfield;
       if(!pos.slots[i]) pos.slots[i] = {filamentId:'',gramm:''};
       pos.slots[i][field] = e.target.value;
+      refreshLivePreview();
     });
   });
 }
@@ -408,12 +457,14 @@ $('#addPositionBtn').addEventListener('click', ()=>{
   addPosition();
   renderPositionen();
   updateTierHint();
+  refreshLivePreview();
 });
 $('#clearPositionsBtn').addEventListener('click', ()=>{
   positionen = [];
   addPosition();
   renderPositionen();
   updateTierHint();
+  refreshLivePreview();
   $('#resultPanel').style.display = 'none';
 });
 
@@ -502,6 +553,7 @@ async function import3MF(file){
 
     renderPositionen();
     updateTierHint();
+    refreshLivePreview();
 
     let html = `<div class="import-msg ${unmatched.size?'warn':'ok'}">${plateCount} Position(en) aus „${file.name}“ importiert (Druckzeit + Filamentverbrauch automatisch übernommen). Stückzahl und Arbeitszeit bitte noch prüfen/eintragen.`;
     if(unmatched.size){
@@ -597,6 +649,7 @@ async function importGcode(file){
     });
     renderPositionen();
     updateTierHint();
+    refreshLivePreview();
 
     let html = `<div class="import-msg ${(unmatched.size||unverified.size)?'warn':'ok'}">Position aus „${file.name}“ importiert (Druckzeit: ${druckzeitH} Std.). Stückzahl und Arbeitszeit bitte noch prüfen/eintragen.`;
     if(unverified.size) html += `\nFarbe nicht in Datei angegeben, bitte in der Position prüfen:\n– ${[...unverified].join('\n– ')}`;
@@ -618,20 +671,35 @@ $('#gcodeFile').addEventListener('change', e=>{
 });
 
 // ---------- Berechnung (gemeinsam für Anzeige + CSV-Export) ----------
+function roundPrice(value, step){
+  if(!step || step<=0) return Math.round(value*100)/100;
+  return Math.round(value/step) * step;
+}
+
 function computeQuote(){
   const marginPct = parseFloat($('#margin').value)||0;
   const extraDiscountPct = parseFloat($('#extraDiscount').value)||0;
   const jobName = $('#jobName').value.trim();
 
-  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0;
+  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, amsRuestStunden=0, amsPositionen=0;
   const posLines = [];
 
   positionen.forEach((pos,idx)=>{
     const stueckzahl = parseInt(pos.stueckzahl)||1;
     const druckzeit = parseFloat(pos.druckzeit)||0;
-    const arbeitszeit = parseFloat(pos.arbeitszeit)||0;
+    let arbeitszeit = parseFloat(pos.arbeitszeit)||0;
 
     const usedSlots = pos.slots.filter(s=> s && s.filamentId && parseFloat(s.gramm)>0);
+
+    // AMS-Rüstzuschlag: automatisch, wenn eine Position mehr als 1 Filament nutzt (Multicolor über AMS)
+    let amsZuschlagH = 0;
+    if(usedSlots.length > 1){
+      amsZuschlagH = (allgemein.amsRuestMin||0) / 60;
+      amsRuestStunden += amsZuschlagH;
+      amsPositionen++;
+      arbeitszeit += amsZuschlagH;
+    }
+
     const material = usedSlots.reduce((sum,s)=>{
       const f = filamente.find(x=>x.id===s.filamentId);
       if(!f) return sum;
@@ -639,7 +707,6 @@ function computeQuote(){
     },0);
     const strom = (allgemein.leistung/1000) * druckzeit * allgemein.strompreis;
     // Wartungssatz je Druckstunde: höchster Gruppenpreis der in dieser Position verwendeten Filamente
-    // (z. B. CF/GF verschleißt die Nozzle stärker als PLA/PETG – der volle Gruppenpreis gilt für die gesamte Druckzeit)
     const wartungssatz = usedSlots.reduce((max,s)=>{
       const f = filamente.find(x=>x.id===s.filamentId);
       const z = f ? (materialgruppen[groupOf(f.material)] ?? GROUP_DEFAULTS[groupOf(f.material)] ?? 0) : 0;
@@ -656,12 +723,17 @@ function computeQuote(){
       name: pos.name || 'Ohne Namen',
       stueckzahl,
       subtotal,
-      proStueck: subtotal/stueckzahl
+      proStueck: subtotal/stueckzahl,
+      amsZuschlag: amsZuschlagH > 0
     });
   });
 
   const sumStueckzahl = totalStueckzahl();
-  const zwischensumme = materialTotal + stromTotal + wartungTotal + arbeitTotal;
+  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal;
+
+  const ausschussBetrag = kostenSumme * ((allgemein.ausschussPct||0)/100);
+  const zwischensumme = kostenSumme + ausschussBetrag;
+
   const gewinn = zwischensumme * (marginPct/100);
   const nachGewinn = zwischensumme + gewinn;
 
@@ -669,27 +741,39 @@ function computeQuote(){
   const tierPct = tier ? tier.rabatt : 0;
   const totalDiscountPct = tierPct + extraDiscountPct;
   const rabattBetrag = nachGewinn * (totalDiscountPct/100);
-  const gesamt = nachGewinn - rabattBetrag;
+  const nettoGesamt = nachGewinn - rabattBetrag;
+
+  const kleinunternehmer = !!allgemein.kleinunternehmer;
+  const mwstSatz = kleinunternehmer ? 0 : (allgemein.mwst||0);
+  const mwstBetrag = nettoGesamt * (mwstSatz/100);
+  const bruttoGesamt = nettoGesamt + mwstBetrag;
+
+  const gesamt = roundPrice(bruttoGesamt, allgemein.rundung);
+  const rundungsDiff = gesamt - bruttoGesamt;
 
   return {jobName, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal,
+    amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
     zwischensumme, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
-    rabattBetrag, gesamt, sumStueckzahl};
+    rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
+    rundungsDiff, gesamt, sumStueckzahl};
 }
 
-$('#calcBtn').addEventListener('click', ()=>{
-  const q = computeQuote();
-
+function buildResultHtml(q){
   let html = '';
   if(q.jobName) html += `<h2 style="margin-bottom:14px;">${q.jobName}</h2>`;
 
   html += `<h3>Positionen</h3>`;
-  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
+  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)${l.amsZuschlag?' · AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
 
   html += `<h3>Kosten gesamt</h3>`;
   html += `<div class="line"><span>Materialkosten</span><span>${fmt(q.materialTotal)} €</span></div>`;
   html += `<div class="line"><span>Stromkosten</span><span>${fmt(q.stromTotal)} €</span></div>`;
   html += `<div class="line"><span>Wartung & Verschleiß</span><span>${fmt(q.wartungTotal)} €</span></div>`;
-  html += `<div class="line"><span>Arbeitskosten</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
+  let arbeitLabel = 'Arbeitskosten';
+  if(q.amsPositionen>0) arbeitLabel += ` (inkl. AMS-Rüstzuschlag: ${q.amsPositionen} Pos. à ${allgemein.amsRuestMin} Min.)`;
+  html += `<div class="line"><span>${arbeitLabel}</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
+  html += `<div class="line"><span>Kostensumme</span><span>${fmt(q.kostenSumme)} €</span></div>`;
+  if(q.ausschussPct>0) html += `<div class="line"><span>Ausschuss-Puffer (${q.ausschussPct}%)</span><span>${fmt(q.ausschussBetrag)} €</span></div>`;
   html += `<div class="line"><span>Zwischensumme</span><span>${fmt(q.zwischensumme)} €</span></div>`;
   if(q.marginPct>0) html += `<div class="line"><span>Gewinnaufschlag (${q.marginPct}%)</span><span>${fmt(q.gewinn)} €</span></div>`;
   if(q.totalDiscountPct>0){
@@ -699,13 +783,38 @@ $('#calcBtn').addEventListener('click', ()=>{
     else label = `Zusätzlicher Nachlass (${q.extraDiscountPct}%)`;
     html += `<div class="line"><span>${label}</span><span>−${fmt(q.rabattBetrag)} €</span></div>`;
   }
+  html += `<div class="line"><span>Netto-Gesamt</span><span>${fmt(q.nettoGesamt)} €</span></div>`;
+  if(q.kleinunternehmer){
+    html += `<div class="line"><span>Umsatzsteuer</span><span>gem. §19 UStG nicht ausgewiesen</span></div>`;
+  } else {
+    html += `<div class="line"><span>zzgl. USt (${q.mwstSatz}%)</span><span>${fmt(q.mwstBetrag)} €</span></div>`;
+  }
   html += `<div class="total"><span>Gesamtpreis (${q.sumStueckzahl} Stk.)</span><span>${fmt(q.gesamt)} €</span></div>`;
   if(q.sumStueckzahl>0) html += `<div class="line"><span>Ø Preis / Stück</span><span>${fmt(q.gesamt/q.sumStueckzahl)} €</span></div>`;
+  return html;
+}
 
+$('#calcBtn').addEventListener('click', ()=>{
+  const q = computeQuote();
   const panel = $('#resultPanel');
-  panel.innerHTML = html;
+  panel.innerHTML = buildResultHtml(q);
   panel.style.display = 'block';
   panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+});
+
+// ---------- Live-Vorschau ----------
+let liveTimer = null;
+function refreshLivePreview(){
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(()=>{
+    try{
+      const q = computeQuote();
+      $('#livePreviewValue').textContent = `€${fmt(q.gesamt)}`;
+    }catch(e){ /* still ok while editing */ }
+  }, 200);
+}
+['margin','extraDiscount'].forEach(id=>{
+  $('#'+id).addEventListener('input', refreshLivePreview);
 });
 
 // ---------- CSV-Export (Preisangebot) ----------
@@ -715,20 +824,21 @@ function csvEsc(s){
   return /[;"\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
 }
 
-$('#exportCsvBtn').addEventListener('click', ()=>{
-  const q = computeQuote();
-  const today = new Date().toLocaleDateString('de-DE');
+function buildCsvRows(q, meta){
   const rows = [];
-
   rows.push(['Preisangebot']);
+  if(meta && meta.nummer) rows.push(['Angebots-Nr.', meta.nummer]);
   rows.push(['Auftrag', q.jobName || '']);
-  rows.push(['Datum', today]);
+  rows.push(['Datum', (meta && meta.datum) || new Date().toLocaleDateString('de-DE')]);
+  if(meta && meta.gueltigBis) rows.push(['Gültig bis', meta.gueltigBis]);
   rows.push([]);
   rows.push(['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']);
   q.posLines.forEach(l=>{
     rows.push([l.nr, l.name, l.stueckzahl, csvNum(l.proStueck), csvNum(l.subtotal)]);
   });
   rows.push([]);
+  rows.push(['','','','Kostensumme', csvNum(q.kostenSumme)]);
+  if(q.ausschussPct>0) rows.push(['','','',`Ausschuss-Puffer (${q.ausschussPct}%)`, csvNum(q.ausschussBetrag)]);
   rows.push(['','','','Zwischensumme', csvNum(q.zwischensumme)]);
   if(q.marginPct>0) rows.push(['','','',`Gewinnaufschlag (${q.marginPct}%)`, csvNum(q.gewinn)]);
   if(q.totalDiscountPct>0){
@@ -738,17 +848,157 @@ $('#exportCsvBtn').addEventListener('click', ()=>{
     else label = `Zusätzlicher Nachlass (${q.extraDiscountPct}%)`;
     rows.push(['','','',label, '-' + csvNum(q.rabattBetrag)]);
   }
+  rows.push(['','','','Netto-Gesamt', csvNum(q.nettoGesamt)]);
+  rows.push(['','','','Umsatzsteuer', q.kleinunternehmer ? 'gem. §19 UStG nicht ausgewiesen' : `${q.mwstSatz}% = ${csvNum(q.mwstBetrag)} €`]);
   rows.push(['','','','Gesamtpreis', csvNum(q.gesamt)]);
   if(q.sumStueckzahl>0) rows.push(['','','','Ø Preis / Stück', csvNum(q.gesamt/q.sumStueckzahl)]);
+  return rows;
+}
 
+function downloadCsv(rows, filename){
   const csv = '\uFEFF' + rows.map(r=>r.map(csvEsc).join(';')).join('\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const safeName = (q.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-  a.href = url; a.download = `preisangebot_${safeName || 'angebot'}.csv`;
+  a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
+}
+
+$('#exportCsvBtn').addEventListener('click', ()=>{
+  const q = computeQuote();
+  const rows = buildCsvRows(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
+  const safeName = (q.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+  downloadCsv(rows, `preisangebot_${safeName || 'angebot'}.csv`);
+});
+
+// ---------- Archiv: Angebote speichern/laden/löschen ----------
+function nextAngebotsNummer(){
+  angebotsCounter++;
+  const jahr = new Date().getFullYear();
+  return `A-${jahr}-${String(angebotsCounter).padStart(3,'0')}`;
+}
+
+function renderArchiv(){
+  const box = $('#archivList');
+  box.innerHTML = '';
+  $('#archivEmpty').style.display = angebote.length ? 'none' : 'block';
+
+  [...angebote].reverse().forEach(a=>{
+    const row = document.createElement('div');
+    row.className = 'archiv-row';
+    row.innerHTML = `
+      <div class="arow-top">
+        <span class="anr">${a.nummer}</span>
+        <span class="aprice">${fmt(a.ergebnis.gesamt)} €</span>
+      </div>
+      <div class="aname">${a.jobName || 'Ohne Bezeichnung'}</div>
+      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'} · ${a.ergebnis.sumStueckzahl} Stk. · ${a.positionen.length} Position(en)</div>
+      <div class="abtns">
+        <button class="ghost-btn" data-load="${a.id}">Laden</button>
+        <button class="ghost-btn" data-csv="${a.id}">⇩ CSV</button>
+        <button class="icon-btn" data-delA="${a.id}" title="Angebot löschen">✕</button>
+      </div>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-load]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = angebote.find(x=>x.id===btn.dataset.load);
+      if(!a) return;
+      positionen = JSON.parse(JSON.stringify(a.positionen));
+      $('#jobName').value = a.jobName || '';
+      $('#angebotsNr').value = a.nummer;
+      $('#gueltigBis').value = a.gueltigBis || '';
+      $('#margin').value = a.margin;
+      $('#extraDiscount').value = a.extraDiscount;
+      renderPositionen();
+      updateTierHint();
+      refreshLivePreview();
+      document.querySelector('.tab[data-view="kalk"]').click();
+    });
+  });
+  box.querySelectorAll('[data-csv]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = angebote.find(x=>x.id===btn.dataset.csv);
+      if(!a) return;
+      const rows = buildCsvRows(a.ergebnis, {nummer: a.nummer, datum: a.datum, gueltigBis: a.gueltigBis});
+      const safeName = (a.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+      downloadCsv(rows, `preisangebot_${a.nummer}_${safeName || 'angebot'}.csv`);
+    });
+  });
+  box.querySelectorAll('[data-delA]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      angebote = angebote.filter(x=>x.id!==btn.dataset.delA);
+      saveAngebote();
+      renderArchiv();
+    });
+  });
+}
+
+$('#saveAngebotBtn').addEventListener('click', ()=>{
+  const q = computeQuote();
+  if(!positionen.length || !q.sumStueckzahl){
+    alert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
+    return;
+  }
+  const nummer = nextAngebotsNummer();
+  $('#angebotsNr').value = nummer;
+  const eintrag = {
+    id: uid('a'),
+    nummer,
+    datum: new Date().toLocaleDateString('de-DE'),
+    gueltigBis: $('#gueltigBis').value,
+    jobName: q.jobName,
+    positionen: JSON.parse(JSON.stringify(positionen)),
+    margin: q.marginPct,
+    extraDiscount: q.extraDiscountPct,
+    ergebnis: q
+  };
+  angebote.push(eintrag);
+  saveAngebotsCounter();
+  saveAngebote();
+  renderArchiv();
+  alert(`Angebot ${nummer} gespeichert (${fmt(q.gesamt)} €). Im Archiv abrufbar.`);
+});
+
+// ---------- Stammdaten-Backup ----------
+$('#exportBackupBtn').addEventListener('click', ()=>{
+  const backup = {
+    exportiertAm: new Date().toISOString(),
+    filamente, allgemein, mengenrabatt, materialgruppen
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `druckkalkulator_backup_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+});
+
+$('#importBackupBtn').addEventListener('click', ()=> $('#backupFile').click());
+$('#backupFile').addEventListener('change', async e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  const msg = $('#backupMsg');
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Filamente, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
+
+    if(Array.isArray(data.filamente)) filamente = data.filamente;
+    if(data.allgemein) allgemein = Object.assign({}, allgemein, data.allgemein);
+    if(Array.isArray(data.mengenrabatt)) mengenrabatt = data.mengenrabatt;
+    if(data.materialgruppen) materialgruppen = data.materialgruppen;
+
+    await Promise.all([saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups()]);
+    renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
+    msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
+  }catch(err){
+    msg.innerHTML = `<div class="import-msg warn">Backup konnte nicht gelesen werden: ${err.message}</div>`;
+  }
 });
 
 loadData();
