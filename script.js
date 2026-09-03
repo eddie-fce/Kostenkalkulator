@@ -31,11 +31,15 @@ const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "P
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19 };
+let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
-let positionen = [];             // [{id, name, stueckzahl, druckzeit, arbeitszeit, slots:[{filamentId,gramm}x4]}]
-let angebote = [];               // [{id, nummer, datum, gueltigBis, jobName, positionen, margin, extraDiscount, ergebnis}]
+let zubehoer = [];               // [{id, name, preis}] – Zubehör/Hardware, Preis pro Stück
+let drucker = [];                // [{id, name, leistung, amsFaehig}]
+let kunden = [];                 // [{id, name, firma, adresse, email, telefon}]
+let vorlagen = [];                // [{id, name, druckzeit, arbeitszeit, slots, zubehoerItems, druckerId}]
+let positionen = [];             // [{id, name, stueckzahl, druckzeit, arbeitszeit, druckerId, zubehoerItems, slots:[{filamentId,gramm}x4]}]
+let angebote = [];               // [{id, nummer, datum, gueltigBis, liefertermin, jobName, kunde, express, expressPct, positionen, margin, extraDiscount, ergebnis}]
 let angebotsCounter = 0;
 
 const $ = s => document.querySelector(s);
@@ -63,6 +67,31 @@ async function loadData(){
   // Fehlende Gruppen (z. B. bei erstem Start oder neuer Version) mit sinnvollen Defaults auffüllen
   GROUP_KEYS.forEach(g=>{ if(materialgruppen[g] === undefined) materialgruppen[g] = GROUP_DEFAULTS[g]; });
   try{
+    const z = await storage.get('zubehoer', false);
+    zubehoer = z ? JSON.parse(z.value) : [];
+  }catch(e){ zubehoer = []; }
+  try{
+    const d = await storage.get('drucker', false);
+    drucker = d ? JSON.parse(d.value) : [];
+  }catch(e){ drucker = []; }
+  if(!drucker.length){
+    // Migration/Erstbefüllung: bisherige globale Druckerleistung als Basis für zwei Standard-Profile übernehmen
+    const seedLeistung = allgemein.leistung || 150;
+    drucker = [
+      {id: uid('d'), name:'P1S #1', leistung: seedLeistung, amsFaehig:false},
+      {id: uid('d'), name:'P1S #2 (AMS)', leistung: seedLeistung, amsFaehig:true}
+    ];
+    saveDrucker();
+  }
+  try{
+    const k = await storage.get('kunden', false);
+    kunden = k ? JSON.parse(k.value) : [];
+  }catch(e){ kunden = []; }
+  try{
+    const v = await storage.get('vorlagen', false);
+    vorlagen = v ? JSON.parse(v.value) : [];
+  }catch(e){ vorlagen = []; }
+  try{
     const a = await storage.get('angebote', false);
     angebote = a ? JSON.parse(a.value) : [];
   }catch(e){ angebote = []; }
@@ -76,8 +105,15 @@ async function loadData(){
   // Standard-Gültigkeit: heute + 14 Tage
   const d = new Date(); d.setDate(d.getDate()+14);
   $('#gueltigBis').value = d.toISOString().slice(0,10);
+  $('#expressPct').value = allgemein.expressPct;
 
   renderFilamentList();
+  renderDruckerList();
+  renderZubehoerList();
+  renderKundenList();
+  renderKundenDatalist();
+  renderVorlagenList();
+  renderVorlageSelect();
   renderGeneralInputs();
   renderTierList();
   renderMaterialGroups();
@@ -104,6 +140,22 @@ async function saveTiers(){
 }
 async function saveMaterialGroups(){
   try{ await storage.set('materialgruppen', JSON.stringify(materialgruppen), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveZubehoer(){
+  try{ await storage.set('zubehoer', JSON.stringify(zubehoer), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveDrucker(){
+  try{ await storage.set('drucker', JSON.stringify(drucker), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveKunden(){
+  try{ await storage.set('kunden', JSON.stringify(kunden), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveVorlagen(){
+  try{ await storage.set('vorlagen', JSON.stringify(vorlagen), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveAngebote(){
@@ -208,26 +260,235 @@ $('#addFilamentBtn').addEventListener('click', ()=>{
   renderPositionen();
 });
 
+// ---------- Stammdaten: Drucker ----------
+function renderDruckerList(){
+  const box = $('#druckerList');
+  box.innerHTML = '';
+  $('#druckerEmpty').style.display = drucker.length ? 'none' : 'block';
+
+  drucker.forEach(d=>{
+    const row = document.createElement('div');
+    row.className = 'drucker-row';
+    row.innerHTML = `
+      <div class="field">
+        <label>Name</label>
+        <input data-id="${d.id}" data-field="name" value="${d.name||''}" placeholder="z. B. P1S #1">
+      </div>
+      <div class="field">
+        <label>Leistung (W)</label>
+        <input data-id="${d.id}" data-field="leistung" type="number" min="0" step="1" value="${d.leistung||0}">
+      </div>
+      <label class="chk-field">
+        <input type="checkbox" data-id="${d.id}" data-field="amsFaehig" ${d.amsFaehig?'checked':''}>
+        AMS-fähig
+      </label>
+      <button class="icon-btn" data-del="${d.id}" title="Drucker löschen">✕</button>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-field]').forEach(el=>{
+    el.addEventListener('input', e=>{
+      const d = drucker.find(x=>x.id===e.target.dataset.id);
+      const field = e.target.dataset.field;
+      d[field] = field==='leistung' ? (parseFloat(e.target.value)||0) : (field==='amsFaehig' ? e.target.checked : e.target.value);
+      saveDrucker();
+      renderPositionen();
+      refreshLivePreview();
+    });
+  });
+  box.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      drucker = drucker.filter(x=>x.id!==btn.dataset.del);
+      positionen.forEach(p=>{ if(p.druckerId===btn.dataset.del) p.druckerId = drucker[0] ? drucker[0].id : ''; });
+      saveDrucker();
+      renderDruckerList();
+      renderPositionen();
+      refreshLivePreview();
+    });
+  });
+}
+
+$('#addDruckerBtn').addEventListener('click', ()=>{
+  drucker.push({id:uid('d'), name:`Drucker ${drucker.length+1}`, leistung:150, amsFaehig:false});
+  saveDrucker();
+  renderDruckerList();
+  renderPositionen();
+});
+
+// ---------- Stammdaten: Zubehör (Gewindeeinsätze, Schrauben, Muttern, …) ----------
+function renderZubehoerList(){
+  const box = $('#zubehoerList');
+  box.innerHTML = '';
+  $('#zubehoerEmpty').style.display = zubehoer.length ? 'none' : 'block';
+
+  zubehoer.forEach(z=>{
+    const row = document.createElement('div');
+    row.className = 'disc-row';
+    row.innerHTML = `
+      <div class="field">
+        <label>Bezeichnung</label>
+        <input data-id="${z.id}" data-field="name" value="${z.name||''}" placeholder="z. B. Gewindeeinsatz M3x5">
+      </div>
+      <div class="field">
+        <label>€ / Stück</label>
+        <input data-id="${z.id}" data-field="preis" type="number" min="0" step="0.01" value="${z.preis||0}">
+      </div>
+      <button class="icon-btn" data-del="${z.id}" title="Zubehör löschen">✕</button>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-field]').forEach(el=>{
+    el.addEventListener('input', e=>{
+      const z = zubehoer.find(x=>x.id===e.target.dataset.id);
+      const field = e.target.dataset.field;
+      z[field] = field==='preis' ? (parseFloat(e.target.value)||0) : e.target.value;
+      saveZubehoer();
+      renderPositionen();
+    });
+  });
+  box.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      zubehoer = zubehoer.filter(x=>x.id!==btn.dataset.del);
+      positionen.forEach(p=>{ p.zubehoerItems = (p.zubehoerItems||[]).filter(it=>it.zubehoerId!==btn.dataset.del); });
+      saveZubehoer();
+      renderZubehoerList();
+      renderPositionen();
+    });
+  });
+}
+
+$('#addZubehoerBtn').addEventListener('click', ()=>{
+  zubehoer.push({id:uid('z'), name:'', preis:0});
+  saveZubehoer();
+  renderZubehoerList();
+});
+
+// ---------- Stammdaten: Kunden ----------
+function renderKundenList(){
+  const box = $('#kundenList');
+  box.innerHTML = '';
+  $('#kundenEmpty').style.display = kunden.length ? 'none' : 'block';
+
+  kunden.forEach(k=>{
+    const row = document.createElement('div');
+    row.className = 'kunde-row';
+    row.innerHTML = `
+      <div class="krow-top">
+        <div class="row g2" style="flex:1;">
+          <div class="field">
+            <label>Name</label>
+            <input data-id="${k.id}" data-field="name" value="${k.name||''}">
+          </div>
+          <div class="field">
+            <label>Firma</label>
+            <input data-id="${k.id}" data-field="firma" value="${k.firma||''}">
+          </div>
+        </div>
+        <button class="icon-btn" data-del="${k.id}" title="Kunde löschen">✕</button>
+      </div>
+      <div class="row g3">
+        <div class="field">
+          <label>E-Mail</label>
+          <input data-id="${k.id}" data-field="email" type="email" value="${k.email||''}">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input data-id="${k.id}" data-field="telefon" value="${k.telefon||''}">
+        </div>
+        <div class="field">
+          <label>Adresse</label>
+          <input data-id="${k.id}" data-field="adresse" value="${k.adresse||''}">
+        </div>
+      </div>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-field]').forEach(el=>{
+    el.addEventListener('input', e=>{
+      const k = kunden.find(x=>x.id===e.target.dataset.id);
+      k[e.target.dataset.field] = e.target.value;
+      saveKunden();
+      renderKundenDatalist();
+    });
+  });
+  box.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      kunden = kunden.filter(x=>x.id!==btn.dataset.del);
+      saveKunden();
+      renderKundenList();
+      renderKundenDatalist();
+    });
+  });
+}
+
+function renderKundenDatalist(){
+  $('#kundenDatalist').innerHTML = kunden.map(k=>`<option value="${(k.name||'').replace(/"/g,'&quot;')}">`).join('');
+}
+
+$('#addKundeBtn').addEventListener('click', ()=>{
+  kunden.push({id:uid('k'), name:'', firma:'', email:'', telefon:'', adresse:''});
+  saveKunden();
+  renderKundenList();
+});
+
+$('#kundeName').addEventListener('input', ()=>{
+  const name = $('#kundeName').value.trim();
+  if(!name) return;
+  const k = kunden.find(x=> (x.name||'').trim().toLowerCase() === name.toLowerCase());
+  if(k){
+    $('#kundeFirma').value = k.firma||'';
+    $('#kundeEmail').value = k.email||'';
+    $('#kundeTelefon').value = k.telefon||'';
+    $('#kundeAdresse').value = k.adresse||'';
+  }
+});
+
+function upsertKunde(){
+  const name = $('#kundeName').value.trim();
+  if(!name) return null;
+  const data = {
+    name,
+    firma: $('#kundeFirma').value.trim(),
+    email: $('#kundeEmail').value.trim(),
+    telefon: $('#kundeTelefon').value.trim(),
+    adresse: $('#kundeAdresse').value.trim()
+  };
+  let k = kunden.find(x=> (x.name||'').trim().toLowerCase() === name.toLowerCase());
+  if(k){ Object.assign(k, data); }
+  else { k = Object.assign({id:uid('k')}, data); kunden.push(k); }
+  saveKunden();
+  renderKundenList();
+  renderKundenDatalist();
+  return k;
+}
+
 // ---------- Stammdaten: Allgemeine Kosten ----------
 function renderGeneralInputs(){
   $('#genStrompreis').value = allgemein.strompreis;
-  $('#genLeistung').value = allgemein.leistung;
   $('#genArbeit').value = allgemein.arbeit;
   $('#genAmsRuest').value = allgemein.amsRuestMin;
   $('#genAusschuss').value = allgemein.ausschussPct;
   $('#genRundung').value = String(allgemein.rundung);
+  $('#genExpressPct').value = allgemein.expressPct;
+  $('#genStdProTag').value = allgemein.stdProTag;
+  $('#genPufferTage').value = allgemein.pufferTage;
   $('#genKleinunternehmer').checked = !!allgemein.kleinunternehmer;
   $('#genMwst').value = allgemein.mwst;
   $('#mwstFieldWrap').style.display = allgemein.kleinunternehmer ? 'none' : 'block';
 }
-['genStrompreis','genLeistung','genArbeit','genAmsRuest','genAusschuss','genMwst'].forEach(id=>{
+['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
     allgemein.strompreis  = parseFloat($('#genStrompreis').value)||0;
-    allgemein.leistung    = parseFloat($('#genLeistung').value)||0;
     allgemein.arbeit      = parseFloat($('#genArbeit').value)||0;
     allgemein.amsRuestMin = parseFloat($('#genAmsRuest').value)||0;
     allgemein.ausschussPct= parseFloat($('#genAusschuss').value)||0;
     allgemein.mwst         = parseFloat($('#genMwst').value)||0;
+    allgemein.expressPct   = parseFloat($('#genExpressPct').value)||0;
+    allgemein.stdProTag    = parseFloat($('#genStdProTag').value)||16;
+    allgemein.pufferTage   = parseFloat($('#genPufferTage').value)||0;
     saveAllgemein();
     refreshLivePreview();
   });
@@ -341,6 +602,66 @@ function updateTierHint(){
   }
 }
 
+// ---------- Stammdaten: Positionsvorlagen ----------
+function renderVorlagenList(){
+  const box = $('#vorlagenList');
+  box.innerHTML = '';
+  $('#vorlagenEmpty').style.display = vorlagen.length ? 'none' : 'block';
+
+  vorlagen.forEach(v=>{
+    const usedSlots = (v.slots||[]).filter(s=>s && s.filamentId).length;
+    const zubCount = (v.zubehoerItems||[]).filter(z=>z.zubehoerId).length;
+    const row = document.createElement('div');
+    row.className = 'vorlage-row';
+    row.innerHTML = `
+      <div>
+        <div class="vname">${v.name}</div>
+        <div class="vmeta">${v.druckzeit||0} Std. Druck · ${usedSlots} Filament(e)${zubCount?` · ${zubCount} Zubehör-Art(en)`:''}</div>
+      </div>
+      <button class="icon-btn" data-delvorlage="${v.id}" title="Vorlage löschen">✕</button>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-delvorlage]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      vorlagen = vorlagen.filter(x=>x.id!==btn.dataset.delvorlage);
+      saveVorlagen();
+      renderVorlagenList();
+      renderVorlageSelect();
+    });
+  });
+}
+
+function renderVorlageSelect(){
+  const sel = $('#vorlageSelect');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Vorlage wählen…</option>' + vorlagen.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
+  sel.value = vorlagen.some(v=>v.id===current) ? current : '';
+}
+
+$('#vorlageLadenBtn').addEventListener('click', ()=>{
+  const id = $('#vorlageSelect').value;
+  if(!id) return;
+  const v = vorlagen.find(x=>x.id===id);
+  if(!v) return;
+  const isEmpty = p => !p.name && !parseFloat(p.druckzeit) && !parseFloat(p.arbeitszeit) && !p.slots.some(s=>s && s.filamentId);
+  if(positionen.length === 1 && isEmpty(positionen[0])) positionen = [];
+  addPosition({
+    name: v.name,
+    stueckzahl: 1,
+    druckzeit: v.druckzeit,
+    arbeitszeit: v.arbeitszeit,
+    slots: JSON.parse(JSON.stringify(v.slots||[null,null,null,null])),
+    zubehoerItems: JSON.parse(JSON.stringify(v.zubehoerItems||[])),
+    druckerId: v.druckerId && drucker.some(d=>d.id===v.druckerId) ? v.druckerId : (drucker[0] ? drucker[0].id : '')
+  });
+  renderPositionen();
+  updateTierHint();
+  refreshLivePreview();
+  $('#vorlageSelect').value = '';
+});
+
 // ---------- Kalkulation: Positionen (Produkte) ----------
 function addPosition(prefill){
   positionen.push(Object.assign({
@@ -349,8 +670,23 @@ function addPosition(prefill){
     stueckzahl: 1,
     druckzeit: 0,
     arbeitszeit: 0,
+    druckerId: drucker.length ? drucker[0].id : '',
+    zubehoerItems: [],
     slots: [null,null,null,null]
   }, prefill||{}));
+}
+
+function updateAmsWarn(pos, card){
+  const warnEl = card.querySelector(`[data-amswarn="${pos.id}"]`);
+  if(!warnEl) return;
+  const usedCount = pos.slots.filter(s=>s && s.filamentId && parseFloat(s.gramm)>0).length;
+  const d = drucker.find(x=>x.id===pos.druckerId);
+  if(usedCount>1 && (!d || !d.amsFaehig)){
+    warnEl.style.display = 'block';
+    warnEl.textContent = '⚠ Mehrere Filamente gewählt, aber der zugeordnete Drucker ist nicht AMS-fähig – kein automatischer AMS-Rüstzuschlag, Farbwechsel ggf. nur manuell möglich.';
+  } else {
+    warnEl.style.display = 'none';
+  }
 }
 
 function renderPositionen(){
@@ -358,12 +694,18 @@ function renderPositionen(){
   box.innerHTML = '';
 
   positionen.forEach((pos, idx)=>{
+    if(!pos.zubehoerItems) pos.zubehoerItems = [];
+    if(!pos.druckerId && drucker.length) pos.druckerId = drucker[0].id;
     const card = document.createElement('div');
     card.className = 'position';
     card.innerHTML = `
       <div class="position-head">
         <span class="pos-tag">POSITION ${idx+1}</span>
-        <button class="icon-btn" data-delpos="${pos.id}" title="Position löschen">✕</button>
+        <div class="pos-actions">
+          <button class="icon-btn" data-duppos="${pos.id}" title="Position duplizieren">⧉</button>
+          <button class="icon-btn" data-savevorlage="${pos.id}" title="Als Vorlage speichern">💾</button>
+          <button class="icon-btn" data-delpos="${pos.id}" title="Position löschen">✕</button>
+        </div>
       </div>
       <div class="row g3" style="margin-bottom:12px;">
         <div class="field">
@@ -375,7 +717,10 @@ function renderPositionen(){
           <input data-pos="${pos.id}" data-pfield="stueckzahl" type="number" min="1" step="1" value="${pos.stueckzahl}">
         </div>
         <div class="field">
-          <label>—</label>
+          <label>Drucker</label>
+          <select data-pos="${pos.id}" data-pfield="druckerId">
+            ${drucker.length ? drucker.map(d=>`<option value="${d.id}" ${d.id===pos.druckerId?'selected':''}>${d.name}${d.amsFaehig?' (AMS)':''}</option>`).join('') : '<option value="">— keine Drucker angelegt —</option>'}
+          </select>
         </div>
       </div>
       <div class="row g2" style="margin-bottom:12px;">
@@ -389,16 +734,27 @@ function renderPositionen(){
         </div>
       </div>
       <div class="pos-slots" data-slotbox="${pos.id}"></div>
+      <div class="pos-warn" data-amswarn="${pos.id}" style="display:none;"></div>
+      <div data-zubbox="${pos.id}"></div>
+      <button class="ghost-btn" data-addzub="${pos.id}" type="button" style="margin-top:2px;">+ Zubehör</button>
     `;
     box.appendChild(card);
     renderSlotsForPosition(pos, card.querySelector(`[data-slotbox="${pos.id}"]`));
+    renderZubItemsForPosition(pos, card.querySelector(`[data-zubbox="${pos.id}"]`));
+    card.querySelector(`[data-addzub="${pos.id}"]`).addEventListener('click', ()=>{
+      pos.zubehoerItems.push({zubehoerId:'', anzahl:1});
+      renderZubItemsForPosition(pos, card.querySelector(`[data-zubbox="${pos.id}"]`));
+      refreshLivePreview();
+    });
+    updateAmsWarn(pos, card);
+    card.addEventListener('input', ()=> updateAmsWarn(pos, card));
   });
 
   box.querySelectorAll('[data-pfield]').forEach(el=>{
     el.addEventListener('input', e=>{
       const pos = positionen.find(p=>p.id===e.target.dataset.pos);
       const field = e.target.dataset.pfield;
-      pos[field] = (field==='stueckzahl'||field==='druckzeit'||field==='arbeitszeit') ? e.target.value : e.target.value;
+      pos[field] = e.target.value;
       if(field==='stueckzahl') updateTierHint();
       refreshLivePreview();
     });
@@ -410,6 +766,36 @@ function renderPositionen(){
       renderPositionen();
       updateTierHint();
       refreshLivePreview();
+    });
+  });
+  box.querySelectorAll('[data-duppos]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const idx = positionen.findIndex(p=>p.id===btn.dataset.duppos);
+      if(idx<0) return;
+      const clone = JSON.parse(JSON.stringify(positionen[idx]));
+      clone.id = uid('p');
+      positionen.splice(idx+1,0,clone);
+      renderPositionen();
+      updateTierHint();
+      refreshLivePreview();
+    });
+  });
+  box.querySelectorAll('[data-savevorlage]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const pos = positionen.find(p=>p.id===btn.dataset.savevorlage);
+      if(!pos) return;
+      const name = prompt('Name der Vorlage:', pos.name || '');
+      if(!name || !name.trim()) return;
+      vorlagen.push({
+        id: uid('v'), name: name.trim(),
+        druckzeit: pos.druckzeit, arbeitszeit: pos.arbeitszeit,
+        slots: JSON.parse(JSON.stringify(pos.slots)),
+        zubehoerItems: JSON.parse(JSON.stringify(pos.zubehoerItems)),
+        druckerId: pos.druckerId
+      });
+      saveVorlagen();
+      renderVorlagenList();
+      renderVorlageSelect();
     });
   });
 
@@ -448,6 +834,44 @@ function renderSlotsForPosition(pos, container){
       const field = e.target.dataset.sfield;
       if(!pos.slots[i]) pos.slots[i] = {filamentId:'',gramm:''};
       pos.slots[i][field] = e.target.value;
+      refreshLivePreview();
+    });
+  });
+}
+
+function renderZubItemsForPosition(pos, container){
+  container.innerHTML = '';
+  if(!pos.zubehoerItems.length) return;
+  pos.zubehoerItems.forEach((item,i)=>{
+    const row = document.createElement('div');
+    row.className = 'zub-item';
+    row.innerHTML = `
+      <div class="field">
+        <label>Zubehör</label>
+        <select data-zidx="${i}" data-zfield="zubehoerId">
+          <option value="">— keins —</option>
+          ${zubehoer.map(z=>`<option value="${z.id}" ${z.id===item.zubehoerId?'selected':''}>${z.name||'Unbenannt'} (${fmt(z.preis)} €/Stk.)</option>`).join('')}
+        </select>
+      </div>
+      <div class="field qty">
+        <label>Anzahl</label>
+        <input data-zidx="${i}" data-zfield="anzahl" type="number" min="0" step="1" value="${item.anzahl}">
+      </div>
+      <button class="icon-btn" data-delzub="${i}" title="Zeile entfernen">✕</button>
+    `;
+    container.appendChild(row);
+  });
+  container.querySelectorAll('[data-zfield]').forEach(el=>{
+    el.addEventListener('input', e=>{
+      const i = parseInt(e.target.dataset.zidx);
+      pos.zubehoerItems[i][e.target.dataset.zfield] = e.target.value;
+      refreshLivePreview();
+    });
+  });
+  container.querySelectorAll('[data-delzub]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      pos.zubehoerItems.splice(parseInt(btn.dataset.delzub),1);
+      renderZubItemsForPosition(pos, container);
       refreshLivePreview();
     });
   });
@@ -670,7 +1094,36 @@ $('#gcodeFile').addEventListener('change', e=>{
   e.target.value = '';
 });
 
-// ---------- Berechnung (gemeinsam für Anzeige + CSV-Export) ----------
+// ---------- Liefertermin-Schätzung & Express ----------
+function estimateLieferterminInfo(){
+  const gesamtStd = positionen.reduce((s,p)=> s + (parseFloat(p.druckzeit)||0), 0);
+  const anzahlDrucker = Math.max(drucker.length, 1);
+  const stdProTag = allgemein.stdProTag || 16;
+  const tageDruck = gesamtStd>0 ? Math.ceil(gesamtStd / anzahlDrucker / stdProTag) : 0;
+  let pufferTage = allgemein.pufferTage || 0;
+  if($('#express').checked) pufferTage = Math.ceil(pufferTage/2);
+  const gesamtTage = Math.max(tageDruck + pufferTage, 1);
+  const d = new Date(); d.setDate(d.getDate()+gesamtTage);
+  return {gesamtStd, anzahlDrucker, stdProTag, tageDruck, pufferTage, gesamtTage, datum:d};
+}
+
+function updateTerminHint(){
+  const info = estimateLieferterminInfo();
+  $('#terminHint').textContent = `Geschätzt: ${fmt(info.gesamtStd)} Std. Druckzeit über ${info.anzahlDrucker} Drucker (${info.stdProTag} Std./Tag) → ${info.tageDruck} Tag(e) + ${info.pufferTage} Puffertag(e) ≈ ${info.datum.toLocaleDateString('de-DE')}. Mit „Termin schätzen“ übernehmen.`;
+}
+
+$('#terminSchaetzenBtn').addEventListener('click', ()=>{
+  const info = estimateLieferterminInfo();
+  $('#liefertermin').value = info.datum.toISOString().slice(0,10);
+});
+
+$('#express').addEventListener('change', ()=>{
+  if($('#express').checked && !(parseFloat($('#expressPct').value)>0)) $('#expressPct').value = allgemein.expressPct;
+  refreshLivePreview();
+});
+$('#expressPct').addEventListener('input', refreshLivePreview);
+
+// ---------- Berechnung (gemeinsam für Anzeige + CSV/PDF-Export) ----------
 function roundPrice(value, step){
   if(!step || step<=0) return Math.round(value*100)/100;
   return Math.round(value/step) * step;
@@ -680,8 +1133,18 @@ function computeQuote(){
   const marginPct = parseFloat($('#margin').value)||0;
   const extraDiscountPct = parseFloat($('#extraDiscount').value)||0;
   const jobName = $('#jobName').value.trim();
+  const expressOn = $('#express').checked;
+  const expressPct = expressOn ? (parseFloat($('#expressPct').value)||0) : 0;
+  const kunde = {
+    name: $('#kundeName').value.trim(),
+    firma: $('#kundeFirma').value.trim(),
+    email: $('#kundeEmail').value.trim(),
+    telefon: $('#kundeTelefon').value.trim(),
+    adresse: $('#kundeAdresse').value.trim()
+  };
+  const liefertermin = $('#liefertermin').value;
 
-  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, amsRuestStunden=0, amsPositionen=0;
+  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, amsRuestStunden=0, amsPositionen=0;
   const posLines = [];
 
   positionen.forEach((pos,idx)=>{
@@ -690,14 +1153,20 @@ function computeQuote(){
     let arbeitszeit = parseFloat(pos.arbeitszeit)||0;
 
     const usedSlots = pos.slots.filter(s=> s && s.filamentId && parseFloat(s.gramm)>0);
+    const posDrucker = drucker.find(d=>d.id===pos.druckerId) || drucker[0] || null;
 
-    // AMS-Rüstzuschlag: automatisch, wenn eine Position mehr als 1 Filament nutzt (Multicolor über AMS)
+    // AMS-Rüstzuschlag: automatisch, wenn eine Position mehr als 1 Filament nutzt UND der zugeordnete Drucker AMS-fähig ist
     let amsZuschlagH = 0;
+    let amsWarn = false;
     if(usedSlots.length > 1){
-      amsZuschlagH = (allgemein.amsRuestMin||0) / 60;
-      amsRuestStunden += amsZuschlagH;
-      amsPositionen++;
-      arbeitszeit += amsZuschlagH;
+      if(posDrucker && posDrucker.amsFaehig){
+        amsZuschlagH = (allgemein.amsRuestMin||0) / 60;
+        amsRuestStunden += amsZuschlagH;
+        amsPositionen++;
+        arbeitszeit += amsZuschlagH;
+      } else {
+        amsWarn = true;
+      }
     }
 
     const material = usedSlots.reduce((sum,s)=>{
@@ -705,7 +1174,8 @@ function computeQuote(){
       if(!f) return sum;
       return sum + (parseFloat(s.gramm)/1000) * f.preis;
     },0);
-    const strom = (allgemein.leistung/1000) * druckzeit * allgemein.strompreis;
+    const leistungW = posDrucker ? (posDrucker.leistung||0) : (allgemein.leistung||0);
+    const strom = (leistungW/1000) * druckzeit * allgemein.strompreis;
     // Wartungssatz je Druckstunde: höchster Gruppenpreis der in dieser Position verwendeten Filamente
     const wartungssatz = usedSlots.reduce((max,s)=>{
       const f = filamente.find(x=>x.id===s.filamentId);
@@ -714,9 +1184,14 @@ function computeQuote(){
     }, 0);
     const wartung = wartungssatz * druckzeit;
     const arbeit = allgemein.arbeit * arbeitszeit;
-    const subtotal = material+strom+wartung+arbeit;
+    const zub = (pos.zubehoerItems||[]).reduce((sum,it)=>{
+      const z = zubehoer.find(x=>x.id===it.zubehoerId);
+      if(!z) return sum;
+      return sum + (parseFloat(it.anzahl)||0) * z.preis;
+    },0);
+    const subtotal = material+strom+wartung+arbeit+zub;
 
-    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit;
+    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit; zubehoerTotal += zub;
 
     posLines.push({
       nr: idx+1,
@@ -724,18 +1199,23 @@ function computeQuote(){
       stueckzahl,
       subtotal,
       proStueck: subtotal/stueckzahl,
-      amsZuschlag: amsZuschlagH > 0
+      amsZuschlag: amsZuschlagH > 0,
+      amsWarn,
+      druckerName: posDrucker ? posDrucker.name : '–'
     });
   });
 
   const sumStueckzahl = totalStueckzahl();
-  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal;
+  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal + zubehoerTotal;
 
   const ausschussBetrag = kostenSumme * ((allgemein.ausschussPct||0)/100);
   const zwischensumme = kostenSumme + ausschussBetrag;
 
-  const gewinn = zwischensumme * (marginPct/100);
-  const nachGewinn = zwischensumme + gewinn;
+  const expressBetrag = zwischensumme * (expressPct/100);
+  const nachExpress = zwischensumme + expressBetrag;
+
+  const gewinn = nachExpress * (marginPct/100);
+  const nachGewinn = nachExpress + gewinn;
 
   const tier = findTier(sumStueckzahl);
   const tierPct = tier ? tier.rabatt : 0;
@@ -751,19 +1231,21 @@ function computeQuote(){
   const gesamt = roundPrice(bruttoGesamt, allgemein.rundung);
   const rundungsDiff = gesamt - bruttoGesamt;
 
-  return {jobName, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal,
+  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal,
     amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
-    zwischensumme, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
+    zwischensumme, expressOn, expressPct, expressBetrag, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
     rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
     rundungsDiff, gesamt, sumStueckzahl};
 }
 
 function buildResultHtml(q){
   let html = '';
-  if(q.jobName) html += `<h2 style="margin-bottom:14px;">${q.jobName}</h2>`;
+  if(q.jobName) html += `<h2 style="margin-bottom:2px;">${q.jobName}</h2>`;
+  if(q.kunde && q.kunde.name) html += `<div style="color:var(--muted); font-size:12.5px; margin-bottom:4px;">Kunde: ${q.kunde.name}${q.kunde.firma?' · '+q.kunde.firma:''}</div>`;
+  if(q.liefertermin) html += `<div style="color:var(--muted); font-size:12.5px; margin-bottom:14px;">Voraussichtlicher Liefertermin: ${new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')}</div>`;
 
   html += `<h3>Positionen</h3>`;
-  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)${l.amsZuschlag?' · AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
+  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)${l.amsZuschlag?' · AMS':''}${l.amsWarn?' · ⚠ kein AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
 
   html += `<h3>Kosten gesamt</h3>`;
   html += `<div class="line"><span>Materialkosten</span><span>${fmt(q.materialTotal)} €</span></div>`;
@@ -772,9 +1254,11 @@ function buildResultHtml(q){
   let arbeitLabel = 'Arbeitskosten';
   if(q.amsPositionen>0) arbeitLabel += ` (inkl. AMS-Rüstzuschlag: ${q.amsPositionen} Pos. à ${allgemein.amsRuestMin} Min.)`;
   html += `<div class="line"><span>${arbeitLabel}</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
+  if(q.zubehoerTotal>0) html += `<div class="line"><span>Zubehör/Hardware</span><span>${fmt(q.zubehoerTotal)} €</span></div>`;
   html += `<div class="line"><span>Kostensumme</span><span>${fmt(q.kostenSumme)} €</span></div>`;
   if(q.ausschussPct>0) html += `<div class="line"><span>Ausschuss-Puffer (${q.ausschussPct}%)</span><span>${fmt(q.ausschussBetrag)} €</span></div>`;
   html += `<div class="line"><span>Zwischensumme</span><span>${fmt(q.zwischensumme)} €</span></div>`;
+  if(q.expressPct>0) html += `<div class="line"><span>Express-Zuschlag (${q.expressPct}%)</span><span>${fmt(q.expressBetrag)} €</span></div>`;
   if(q.marginPct>0) html += `<div class="line"><span>Gewinnaufschlag (${q.marginPct}%)</span><span>${fmt(q.gewinn)} €</span></div>`;
   if(q.totalDiscountPct>0){
     let label = 'Nachlass';
@@ -811,6 +1295,7 @@ function refreshLivePreview(){
       const q = computeQuote();
       $('#livePreviewValue').textContent = `€${fmt(q.gesamt)}`;
     }catch(e){ /* still ok while editing */ }
+    try{ updateTerminHint(); }catch(e){ /* still ok while editing */ }
   }, 200);
 }
 ['margin','extraDiscount'].forEach(id=>{
@@ -831,6 +1316,15 @@ function buildCsvRows(q, meta){
   rows.push(['Auftrag', q.jobName || '']);
   rows.push(['Datum', (meta && meta.datum) || new Date().toLocaleDateString('de-DE')]);
   if(meta && meta.gueltigBis) rows.push(['Gültig bis', meta.gueltigBis]);
+  if(q.liefertermin) rows.push(['Voraussichtlicher Liefertermin', new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')]);
+  if(q.kunde && q.kunde.name){
+    rows.push([]);
+    rows.push(['Kunde', q.kunde.name]);
+    if(q.kunde.firma) rows.push(['Firma', q.kunde.firma]);
+    if(q.kunde.adresse) rows.push(['Adresse', q.kunde.adresse]);
+    if(q.kunde.email) rows.push(['E-Mail', q.kunde.email]);
+    if(q.kunde.telefon) rows.push(['Telefon', q.kunde.telefon]);
+  }
   rows.push([]);
   rows.push(['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']);
   q.posLines.forEach(l=>{
@@ -838,8 +1332,10 @@ function buildCsvRows(q, meta){
   });
   rows.push([]);
   rows.push(['','','','Kostensumme', csvNum(q.kostenSumme)]);
+  if(q.zubehoerTotal>0) rows.push(['','','','davon Zubehör/Hardware', csvNum(q.zubehoerTotal)]);
   if(q.ausschussPct>0) rows.push(['','','',`Ausschuss-Puffer (${q.ausschussPct}%)`, csvNum(q.ausschussBetrag)]);
   rows.push(['','','','Zwischensumme', csvNum(q.zwischensumme)]);
+  if(q.expressPct>0) rows.push(['','','',`Express-Zuschlag (${q.expressPct}%)`, csvNum(q.expressBetrag)]);
   if(q.marginPct>0) rows.push(['','','',`Gewinnaufschlag (${q.marginPct}%)`, csvNum(q.gewinn)]);
   if(q.totalDiscountPct>0){
     let label = 'Nachlass';
@@ -856,7 +1352,7 @@ function buildCsvRows(q, meta){
 }
 
 function downloadCsv(rows, filename){
-  const csv = '\uFEFF' + rows.map(r=>r.map(csvEsc).join(';')).join('\n');
+  const csv = '﻿' + rows.map(r=>r.map(csvEsc).join(';')).join('\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -870,6 +1366,114 @@ $('#exportCsvBtn').addEventListener('click', ()=>{
   const rows = buildCsvRows(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
   const safeName = (q.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
   downloadCsv(rows, `preisangebot_${safeName || 'angebot'}.csv`);
+});
+
+// ---------- PDF-Export (Preisangebot) ----------
+function buildPdfDoc(q, meta){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 18;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(18);
+  doc.text('Preisangebot', 14, y); y += 8;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  if(meta && meta.nummer && meta.nummer !== 'wird beim Speichern vergeben'){ doc.text(`Angebots-Nr.: ${meta.nummer}`, 14, y); y += 5; }
+  doc.text(`Datum: ${(meta && meta.datum) || new Date().toLocaleDateString('de-DE')}`, 14, y); y += 5;
+  if(meta && meta.gueltigBis){ doc.text(`Gültig bis: ${meta.gueltigBis}`, 14, y); y += 5; }
+  if(q.liefertermin){ doc.text(`Voraussichtlicher Liefertermin: ${new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')}`, 14, y); y += 5; }
+  if(q.jobName){ doc.text(`Auftrag: ${q.jobName}`, 14, y); y += 5; }
+  y += 3;
+
+  if(q.kunde && q.kunde.name){
+    doc.setFont('helvetica','bold'); doc.text('Kunde', 14, y); y += 5;
+    doc.setFont('helvetica','normal');
+    doc.text(q.kunde.name, 14, y); y += 5;
+    if(q.kunde.firma){ doc.text(q.kunde.firma, 14, y); y += 5; }
+    if(q.kunde.adresse){ doc.text(q.kunde.adresse, 14, y); y += 5; }
+    if(q.kunde.email){ doc.text(q.kunde.email, 14, y); y += 5; }
+    if(q.kunde.telefon){ doc.text(q.kunde.telefon, 14, y); y += 5; }
+    y += 3;
+  }
+
+  doc.autoTable({
+    startY: y,
+    head: [['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']],
+    body: q.posLines.map(l=>[l.nr, l.name, l.stueckzahl, fmt(l.proStueck), fmt(l.subtotal)]),
+    theme: 'grid',
+    headStyles: {fillColor:[242,84,45]},
+    styles: {fontSize:9}
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  const summaryRows = [];
+  summaryRows.push(['Kostensumme', fmt(q.kostenSumme)+' €']);
+  if(q.zubehoerTotal>0) summaryRows.push(['davon Zubehör/Hardware', fmt(q.zubehoerTotal)+' €']);
+  if(q.ausschussPct>0) summaryRows.push([`Ausschuss-Puffer (${q.ausschussPct}%)`, fmt(q.ausschussBetrag)+' €']);
+  summaryRows.push(['Zwischensumme', fmt(q.zwischensumme)+' €']);
+  if(q.expressPct>0) summaryRows.push([`Express-Zuschlag (${q.expressPct}%)`, fmt(q.expressBetrag)+' €']);
+  if(q.marginPct>0) summaryRows.push([`Gewinnaufschlag (${q.marginPct}%)`, fmt(q.gewinn)+' €']);
+  if(q.totalDiscountPct>0){
+    let label = 'Nachlass';
+    if(q.tierPct>0 && q.extraDiscountPct>0) label = `Nachlass (Mengenrabatt ${q.tierPct}% + Zusatz ${q.extraDiscountPct}%)`;
+    else if(q.tierPct>0) label = `Mengenrabatt (${q.tierPct}%)`;
+    else label = `Zusätzlicher Nachlass (${q.extraDiscountPct}%)`;
+    summaryRows.push([label, '−'+fmt(q.rabattBetrag)+' €']);
+  }
+  summaryRows.push(['Netto-Gesamt', fmt(q.nettoGesamt)+' €']);
+  summaryRows.push(['Umsatzsteuer', q.kleinunternehmer ? 'gem. §19 UStG nicht ausgewiesen' : `${q.mwstSatz}% = ${fmt(q.mwstBetrag)} €`]);
+  summaryRows.push(['Gesamtpreis', fmt(q.gesamt)+' €']);
+  if(q.sumStueckzahl>0) summaryRows.push(['Ø Preis / Stück', fmt(q.gesamt/q.sumStueckzahl)+' €']);
+
+  doc.autoTable({
+    startY: y,
+    body: summaryRows,
+    theme: 'plain',
+    styles: {fontSize:10},
+    columnStyles: {0:{cellWidth:120}, 1:{halign:'right'}},
+    didParseCell: function(data){
+      if(data.row.index === summaryRows.length-1){ data.cell.styles.fontStyle='bold'; data.cell.styles.fontSize=12; }
+    }
+  });
+
+  if(q.kleinunternehmer){
+    y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(8); doc.setTextColor(120);
+    doc.text('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.', 14, y);
+  }
+
+  return doc;
+}
+
+function pdfSafeName(q, prefix){
+  const safeName = (q.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+  return `preisangebot_${prefix?prefix+'_':''}${safeName || 'angebot'}.pdf`;
+}
+
+$('#exportPdfBtn').addEventListener('click', ()=>{
+  if(!window.jspdf){ alert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
+  const q = computeQuote();
+  const doc = buildPdfDoc(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
+  doc.save(pdfSafeName(q));
+});
+
+// ---------- Angebot per E-Mail senden ----------
+$('#mailAngebotBtn').addEventListener('click', ()=>{
+  if(!window.jspdf){ alert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
+  const q = computeQuote();
+  if(!positionen.length || !q.sumStueckzahl){
+    alert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
+    return;
+  }
+  const doc = buildPdfDoc(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
+  const filename = pdfSafeName(q);
+  doc.save(filename);
+
+  const to = q.kunde.email || '';
+  const nummer = $('#angebotsNr').value;
+  const subject = `Ihr Angebot${nummer && nummer!=='wird beim Speichern vergeben' ? ' '+nummer : ''}${q.jobName ? ' – '+q.jobName : ''}`;
+  const anrede = q.kunde.name ? `Hallo ${q.kunde.name.split(' ')[0]},` : 'Hallo,';
+  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} € (${q.sumStueckzahl} Stk.).\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße`;
+  window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 
 // ---------- Archiv: Angebote speichern/laden/löschen ----------
@@ -892,11 +1496,12 @@ function renderArchiv(){
         <span class="anr">${a.nummer}</span>
         <span class="aprice">${fmt(a.ergebnis.gesamt)} €</span>
       </div>
-      <div class="aname">${a.jobName || 'Ohne Bezeichnung'}</div>
-      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'} · ${a.ergebnis.sumStueckzahl} Stk. · ${a.positionen.length} Position(en)</div>
+      <div class="aname">${a.jobName || 'Ohne Bezeichnung'}${a.kunde && a.kunde.name ? ' · '+a.kunde.name : ''}</div>
+      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'}${a.liefertermin ? ' · Liefertermin: '+new Date(a.liefertermin+'T00:00:00').toLocaleDateString('de-DE') : ''} · ${a.ergebnis.sumStueckzahl} Stk. · ${a.positionen.length} Position(en)${a.express?' · Express':''}</div>
       <div class="abtns">
         <button class="ghost-btn" data-load="${a.id}">Laden</button>
         <button class="ghost-btn" data-csv="${a.id}">⇩ CSV</button>
+        <button class="ghost-btn" data-pdf="${a.id}">⇩ PDF</button>
         <button class="icon-btn" data-delA="${a.id}" title="Angebot löschen">✕</button>
       </div>
     `;
@@ -908,11 +1513,24 @@ function renderArchiv(){
       const a = angebote.find(x=>x.id===btn.dataset.load);
       if(!a) return;
       positionen = JSON.parse(JSON.stringify(a.positionen));
+      positionen.forEach(p=>{
+        if(!p.druckerId || !drucker.some(d=>d.id===p.druckerId)) p.druckerId = drucker[0] ? drucker[0].id : '';
+        if(!p.zubehoerItems) p.zubehoerItems = [];
+      });
       $('#jobName').value = a.jobName || '';
       $('#angebotsNr').value = a.nummer;
       $('#gueltigBis').value = a.gueltigBis || '';
+      $('#liefertermin').value = a.liefertermin || '';
       $('#margin').value = a.margin;
       $('#extraDiscount').value = a.extraDiscount;
+      $('#express').checked = !!a.express;
+      $('#expressPct').value = a.expressPct || allgemein.expressPct;
+      const k = a.kunde || {};
+      $('#kundeName').value = k.name || '';
+      $('#kundeFirma').value = k.firma || '';
+      $('#kundeEmail').value = k.email || '';
+      $('#kundeTelefon').value = k.telefon || '';
+      $('#kundeAdresse').value = k.adresse || '';
       renderPositionen();
       updateTierHint();
       refreshLivePreview();
@@ -926,6 +1544,15 @@ function renderArchiv(){
       const rows = buildCsvRows(a.ergebnis, {nummer: a.nummer, datum: a.datum, gueltigBis: a.gueltigBis});
       const safeName = (a.jobName || 'angebot').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
       downloadCsv(rows, `preisangebot_${a.nummer}_${safeName || 'angebot'}.csv`);
+    });
+  });
+  box.querySelectorAll('[data-pdf]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!window.jspdf){ alert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
+      const a = angebote.find(x=>x.id===btn.dataset.pdf);
+      if(!a) return;
+      const doc = buildPdfDoc(a.ergebnis, {nummer: a.nummer, datum: a.datum, gueltigBis: a.gueltigBis});
+      doc.save(pdfSafeName(a.ergebnis, a.nummer));
     });
   });
   box.querySelectorAll('[data-delA]').forEach(btn=>{
@@ -943,6 +1570,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
     alert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
     return;
   }
+  if(q.kunde.name) upsertKunde();
   const nummer = nextAngebotsNummer();
   $('#angebotsNr').value = nummer;
   const eintrag = {
@@ -950,7 +1578,11 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
     nummer,
     datum: new Date().toLocaleDateString('de-DE'),
     gueltigBis: $('#gueltigBis').value,
+    liefertermin: $('#liefertermin').value,
     jobName: q.jobName,
+    kunde: q.kunde,
+    express: q.expressOn,
+    expressPct: q.expressPct,
     positionen: JSON.parse(JSON.stringify(positionen)),
     margin: q.marginPct,
     extraDiscount: q.extraDiscountPct,
@@ -967,7 +1599,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
 $('#exportBackupBtn').addEventListener('click', ()=>{
   const backup = {
     exportiertAm: new Date().toISOString(),
-    filamente, allgemein, mengenrabatt, materialgruppen
+    filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, vorlagen
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -986,15 +1618,20 @@ $('#backupFile').addEventListener('change', async e=>{
   try{
     const text = await file.text();
     const data = JSON.parse(text);
-    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Filamente, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
+    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Filamente, Drucker, Zubehör, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
 
     if(Array.isArray(data.filamente)) filamente = data.filamente;
     if(data.allgemein) allgemein = Object.assign({}, allgemein, data.allgemein);
     if(Array.isArray(data.mengenrabatt)) mengenrabatt = data.mengenrabatt;
     if(data.materialgruppen) materialgruppen = data.materialgruppen;
+    if(Array.isArray(data.zubehoer)) zubehoer = data.zubehoer;
+    if(Array.isArray(data.drucker) && data.drucker.length) drucker = data.drucker;
+    if(Array.isArray(data.kunden)) kunden = data.kunden;
+    if(Array.isArray(data.vorlagen)) vorlagen = data.vorlagen;
 
-    await Promise.all([saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups()]);
+    await Promise.all([saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveVorlagen()]);
     renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
+    renderDruckerList(); renderZubehoerList(); renderKundenList(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){
     msg.innerHTML = `<div class="import-msg warn">Backup konnte nicht gelesen werden: ${err.message}</div>`;
