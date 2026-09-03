@@ -182,6 +182,74 @@
   <div class="view" id="view-stamm">
 
     <div class="panel">
+      <h2>Firmenprofil (Absender)</h2>
+      <p class="hint">Erscheint als Briefkopf auf dem PDF-Angebot. Das Logo wird beim Hochladen automatisch verkleinert und nur lokal gespeichert.</p>
+      <div class="row g3">
+        <div class="field">
+          <label>Firmenname</label>
+          <input id="firmaName" placeholder="z. B. Mustermann 3D-Druck">
+        </div>
+        <div class="field">
+          <label>Ansprechpartner (optional)</label>
+          <input id="firmaAnsprechpartner">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input id="firmaTelefon">
+        </div>
+      </div>
+      <div class="row g3" style="margin-top:12px;">
+        <div class="field">
+          <label>E-Mail</label>
+          <input id="firmaEmail" type="email">
+        </div>
+        <div class="field">
+          <label>Website (optional)</label>
+          <input id="firmaWebsite" placeholder="www.beispiel.de">
+        </div>
+        <div class="field">
+          <label>Adresse</label>
+          <input id="firmaAdresse" placeholder="Straße, PLZ Ort">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>USt-ID (falls vorhanden)</label>
+          <input id="firmaUstId" placeholder="DE123456789">
+        </div>
+        <div class="field">
+          <label>Steuernummer (alternativ zur USt-ID)</label>
+          <input id="firmaSteuernummer">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>IBAN (für Zahlungshinweis auf dem PDF)</label>
+          <input id="firmaIban" placeholder="DE00 0000 0000 0000 0000 00">
+        </div>
+        <div class="field">
+          <label>BIC (optional)</label>
+          <input id="firmaBic">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:14px; align-items:end;">
+        <div class="field">
+          <label>Logo</label>
+          <input type="file" id="firmaLogoFile" accept="image/*" style="display:none;">
+          <button class="ghost-btn" id="firmaLogoBtn" type="button">⇪ Logo hochladen</button>
+        </div>
+        <div class="field" id="firmaLogoPreviewWrap" style="display:none;">
+          <label>Vorschau</label>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <img id="firmaLogoPreview" style="max-height:48px; max-width:140px; border-radius:6px; background:#fff; padding:4px;">
+            <button class="icon-btn" id="firmaLogoRemoveBtn" title="Logo entfernen" type="button">✕</button>
+          </div>
+        </div>
+      </div>
+      <div class="save-msg" id="firmaSaveMsg">Gespeichert.</div>
+    </div>
+
+    <div class="panel">
       <h2>Filamente & Farben</h2>
       <p class="hint">Lege hier jede Material/Farb-Kombination mit ihrem Kilopreis an. Der Verschleiß-Zuschlag wird beim Material automatisch sinnvoll vorgeschlagen (PLA/PETG/TPU: kein Zuschlag; ABS/ASA/PC/Nylon: erhöht durch höhere Drucktemperatur; faserverstärkte Filamente wie PA-CF/PET-CF: deutlich erhöht durch Nozzle-Abnutzung) – danach frei anpassbar.</p>
       <div id="filamentList"></div>

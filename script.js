@@ -31,6 +31,7 @@ const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "P
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
+let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0 };
 let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
@@ -52,6 +53,10 @@ async function loadData(){
     const f = await storage.get('filamente', false);
     filamente = f ? JSON.parse(f.value) : [];
   }catch(e){ filamente = []; }
+  try{
+    const fi = await storage.get('firma', false);
+    if(fi) firma = Object.assign({}, firma, JSON.parse(fi.value));
+  }catch(e){ /* Standardwerte bleiben */ }
   try{
     const g = await storage.get('allgemein', false);
     if(g) allgemein = Object.assign({}, allgemein, JSON.parse(g.value)); // mit Defaults mergen, falls neue Felder fehlen
@@ -107,6 +112,7 @@ async function loadData(){
   $('#gueltigBis').value = d.toISOString().slice(0,10);
   $('#expressPct').value = allgemein.expressPct;
 
+  renderFirmaInputs();
   renderFilamentList();
   renderDruckerList();
   renderZubehoerList();
@@ -127,6 +133,12 @@ async function loadData(){
 async function saveFilamente(){
   try{ await storage.set('filamente', JSON.stringify(filamente), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveFirma(){
+  try{
+    await storage.set('firma', JSON.stringify(firma), false);
+    flashSaved('#firmaSaveMsg');
+  }catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveAllgemein(){
   try{
@@ -166,8 +178,9 @@ async function saveAngebotsCounter(){
   try{ await storage.set('angebotsCounter', String(angebotsCounter), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
-function flashSaved(){
-  const el = $('#genSaveMsg');
+function flashSaved(sel){
+  const el = $(sel || '#genSaveMsg');
+  if(!el) return;
   el.classList.add('show');
   clearTimeout(flashSaved._t);
   flashSaved._t = setTimeout(()=>el.classList.remove('show'),1200);
@@ -195,6 +208,75 @@ function guessHex(name){
   for(const k in map){ if(n.includes(k)) return map[k]; }
   return '#666a75';
 }
+
+// ---------- Stammdaten: Firmenprofil (Absender) ----------
+function renderFirmaInputs(){
+  $('#firmaName').value = firma.name||'';
+  $('#firmaAnsprechpartner').value = firma.ansprechpartner||'';
+  $('#firmaTelefon').value = firma.telefon||'';
+  $('#firmaEmail').value = firma.email||'';
+  $('#firmaWebsite').value = firma.website||'';
+  $('#firmaAdresse').value = firma.adresse||'';
+  $('#firmaUstId').value = firma.ustId||'';
+  $('#firmaSteuernummer').value = firma.steuernummer||'';
+  $('#firmaIban').value = firma.iban||'';
+  $('#firmaBic').value = firma.bic||'';
+  if(firma.logoDataUrl){
+    $('#firmaLogoPreview').src = firma.logoDataUrl;
+    $('#firmaLogoPreviewWrap').style.display = 'block';
+  } else {
+    $('#firmaLogoPreviewWrap').style.display = 'none';
+  }
+}
+['firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic'].forEach(id=>{
+  $('#'+id).addEventListener('change', ()=>{
+    firma.name = $('#firmaName').value.trim();
+    firma.ansprechpartner = $('#firmaAnsprechpartner').value.trim();
+    firma.telefon = $('#firmaTelefon').value.trim();
+    firma.email = $('#firmaEmail').value.trim();
+    firma.website = $('#firmaWebsite').value.trim();
+    firma.adresse = $('#firmaAdresse').value.trim();
+    firma.ustId = $('#firmaUstId').value.trim();
+    firma.steuernummer = $('#firmaSteuernummer').value.trim();
+    firma.iban = $('#firmaIban').value.trim();
+    firma.bic = $('#firmaBic').value.trim();
+    saveFirma();
+  });
+});
+
+$('#firmaLogoBtn').addEventListener('click', ()=> $('#firmaLogoFile').click());
+$('#firmaLogoFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    const img = new Image();
+    img.onload = ()=>{
+      // Vor dem Speichern verkleinern, damit localStorage nicht unnötig aufgebläht wird
+      const maxDim = 400;
+      let w = img.width, h = img.height;
+      if(w > maxDim || h > maxDim){
+        const scale = Math.min(maxDim/w, maxDim/h);
+        w = Math.round(w*scale); h = Math.round(h*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      firma.logoDataUrl = canvas.toDataURL('image/png');
+      firma.logoW = w; firma.logoH = h;
+      saveFirma();
+      renderFirmaInputs();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+$('#firmaLogoRemoveBtn').addEventListener('click', ()=>{
+  firma.logoDataUrl = ''; firma.logoW = 0; firma.logoH = 0;
+  saveFirma();
+  renderFirmaInputs();
+});
 
 // ---------- Stammdaten: Filamente ----------
 function renderFilamentList(){
@@ -410,7 +492,9 @@ function kundeStats(k){
   const name = (k.name||'').trim().toLowerCase();
   const matches = name ? angebote.filter(a => a.kunde && (a.kunde.name||'').trim().toLowerCase() === name) : [];
   const summe = matches.reduce((s,a)=> s + (a.ergebnis && a.ergebnis.gesamt || 0), 0);
-  return {matches, summe, letztes: matches.length ? matches[matches.length-1] : null};
+  const angenommen = matches.filter(a => angebotStatusInfo(a).value === 'angenommen');
+  const summeAngenommen = angenommen.reduce((s,a)=> s + (a.ergebnis && a.ergebnis.gesamt || 0), 0);
+  return {matches, summe, angenommenCount: angenommen.length, summeAngenommen, letztes: matches.length ? matches[matches.length-1] : null};
 }
 
 function renderKundenVerwaltung(){
@@ -423,7 +507,7 @@ function renderKundenVerwaltung(){
   $('#kundenVerwaltungEmpty').style.display = list.length ? 'none' : 'block';
 
   list.forEach(k=>{
-    const {matches, summe, letztes} = kundeStats(k);
+    const {matches, summe, angenommenCount, summeAngenommen, letztes} = kundeStats(k);
     const row = document.createElement('div');
     row.className = 'kv-row' + (kundenVerwaltungOpen.has(k.id) ? ' open' : '');
     row.innerHTML = `
@@ -462,6 +546,7 @@ function renderKundenVerwaltung(){
         <div class="kv-stats">
           <span>Angebote gesamt: <b>${matches.length}</b></span>
           <span>Gesamtumsatz: <b>${fmt(summe)} €</b></span>
+          <span>Angenommen: <b>${angenommenCount} (${fmt(summeAngenommen)} €)</b></span>
           <span>Letztes Angebot: <b>${letztes ? letztes.nummer+' ('+letztes.datum+')' : '–'}</b></span>
         </div>
         <div class="btn-row" style="margin-bottom:4px;">
@@ -469,15 +554,17 @@ function renderKundenVerwaltung(){
           <button class="icon-btn" data-delkv="${k.id}" title="Kunde löschen">✕</button>
         </div>
         ${matches.length ? '<div class="slot-title" style="margin-top:10px;">ZURÜCKLIEGENDE ANGEBOTE</div>' : ''}
-        ${[...matches].reverse().map(a=>`
+        ${[...matches].reverse().map(a=>{
+          const info = angebotStatusInfo(a);
+          return `
           <div class="kv-angebot-row">
-            <span>${a.nummer} · ${a.datum} · ${a.ergebnis.sumStueckzahl} Stk.</span>
+            <span>${a.nummer} · ${a.datum} · ${a.ergebnis.sumStueckzahl} Stk. · <span class="status-tag ${info.cls}">${info.label}</span></span>
             <span style="display:flex; align-items:center; gap:8px;">
               <b style="color:var(--accent);">${fmt(a.ergebnis.gesamt)} €</b>
               <button class="ghost-btn" data-kvload="${a.id}">Laden</button>
             </span>
           </div>
-        `).join('')}
+        `;}).join('')}
       </div>
     `;
     box.appendChild(row);
@@ -1452,7 +1539,45 @@ $('#exportCsvBtn').addEventListener('click', ()=>{
 function buildPdfDoc(q, meta){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  let y = 18;
+  let y = 15;
+
+  // Briefkopf: Logo + Absenderdaten aus dem Firmenprofil (Stammdaten)
+  let headBottom = y;
+  if(firma.logoDataUrl){
+    try{
+      const typeMatch = /^data:image\/(\w+);/.exec(firma.logoDataUrl);
+      const imgFormat = typeMatch ? typeMatch[1].toUpperCase() : 'PNG';
+      const maxW = 35, maxH = 20;
+      let w = maxW, h = maxH;
+      if(firma.logoW && firma.logoH){
+        const ratio = firma.logoW / firma.logoH;
+        if(maxW / ratio <= maxH){ w = maxW; h = maxW / ratio; }
+        else { h = maxH; w = maxH * ratio; }
+      }
+      doc.addImage(firma.logoDataUrl, imgFormat, 14, y, w, h);
+      headBottom = Math.max(headBottom, y + h);
+    }catch(e){ /* Logo nicht lesbar - PDF trotzdem ohne Logo erzeugen */ }
+  }
+  if(firma.name || firma.adresse || firma.email || firma.telefon){
+    let fy = y + 4;
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    if(firma.name){ doc.text(firma.name, 196, fy, {align:'right'}); fy += 5; }
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+    [
+      firma.ansprechpartner,
+      firma.adresse,
+      [firma.telefon, firma.email].filter(Boolean).join(' · '),
+      firma.website,
+      firma.ustId ? `USt-ID: ${firma.ustId}` : (firma.steuernummer ? `St.-Nr.: ${firma.steuernummer}` : '')
+    ].filter(Boolean).forEach(line=>{ doc.text(line, 196, fy, {align:'right'}); fy += 4; });
+    doc.setTextColor(0);
+    headBottom = Math.max(headBottom, fy);
+  }
+  if(headBottom > y){
+    y = headBottom + 4;
+    doc.setDrawColor(220); doc.line(14, y, 196, y);
+    y += 8;
+  }
 
   doc.setFont('helvetica','bold'); doc.setFontSize(18);
   doc.text('Preisangebot', 14, y); y += 8;
@@ -1515,10 +1640,13 @@ function buildPdfDoc(q, meta){
     }
   });
 
-  if(q.kleinunternehmer){
+  const footerLines = [];
+  if(firma.iban) footerLines.push(`Zahlung per Überweisung: IBAN ${firma.iban}${firma.bic ? ' · BIC '+firma.bic : ''}${firma.name ? ' · '+firma.name : ''}`);
+  if(q.kleinunternehmer) footerLines.push('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.');
+  if(footerLines.length){
     y = doc.lastAutoTable.finalY + 8;
-    doc.setFontSize(8); doc.setTextColor(120);
-    doc.text('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.', 14, y);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120);
+    footerLines.forEach(line=>{ doc.text(line, 14, y); y += 4; });
   }
 
   return doc;
@@ -1552,7 +1680,7 @@ $('#mailAngebotBtn').addEventListener('click', ()=>{
   const nummer = $('#angebotsNr').value;
   const subject = `Ihr Angebot${nummer && nummer!=='wird beim Speichern vergeben' ? ' '+nummer : ''}${q.jobName ? ' – '+q.jobName : ''}`;
   const anrede = q.kunde.name ? `Hallo ${q.kunde.name.split(' ')[0]},` : 'Hallo,';
-  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} € (${q.sumStueckzahl} Stk.).\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße`;
+  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} € (${q.sumStueckzahl} Stk.).\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firma.name ? '\n'+firma.name : ''}`;
   window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 
@@ -1591,12 +1719,31 @@ function loadAngebotInForm(a){
   document.querySelector('.tab[data-view="kalk"]').click();
 }
 
+// Status eines Angebots inkl. automatischer "Abgelaufen"-Anzeige (offen + gültig-bis überschritten)
+function angebotStatusInfo(a){
+  const STATUS_MAP = {
+    offen: {label:'Offen', cls:'status-offen'},
+    angenommen: {label:'Angenommen', cls:'status-angenommen'},
+    abgelehnt: {label:'Abgelehnt', cls:'status-abgelehnt'}
+  };
+  const value = (a.status && STATUS_MAP[a.status]) ? a.status : 'offen';
+  if(value === 'offen' && a.gueltigBis){
+    const heute = new Date(); heute.setHours(0,0,0,0);
+    if(new Date(a.gueltigBis+'T00:00:00') < heute){
+      return {value, label:'Abgelaufen', cls:'status-abgelaufen'};
+    }
+  }
+  return Object.assign({value}, STATUS_MAP[value]);
+}
+
 function renderArchiv(){
   const box = $('#archivList');
   box.innerHTML = '';
   $('#archivEmpty').style.display = angebote.length ? 'none' : 'block';
 
   [...angebote].reverse().forEach(a=>{
+    const info = angebotStatusInfo(a);
+    const offenLabel = info.value === 'offen' ? info.label : 'Offen';
     const row = document.createElement('div');
     row.className = 'archiv-row';
     row.innerHTML = `
@@ -1607,6 +1754,11 @@ function renderArchiv(){
       <div class="aname">${a.jobName || 'Ohne Bezeichnung'}${a.kunde && a.kunde.name ? ' · '+a.kunde.name : ''}</div>
       <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'}${a.liefertermin ? ' · Liefertermin: '+new Date(a.liefertermin+'T00:00:00').toLocaleDateString('de-DE') : ''} · ${a.ergebnis.sumStueckzahl} Stk. · ${a.positionen.length} Position(en)${a.express?' · Express':''}</div>
       <div class="abtns">
+        <select class="status-select ${info.cls}" data-statussel="${a.id}" title="Angebots-Status">
+          <option value="offen" ${info.value==='offen'?'selected':''}>${offenLabel}</option>
+          <option value="angenommen" ${info.value==='angenommen'?'selected':''}>Angenommen</option>
+          <option value="abgelehnt" ${info.value==='abgelehnt'?'selected':''}>Abgelehnt</option>
+        </select>
         <button class="ghost-btn" data-load="${a.id}">Laden</button>
         <button class="ghost-btn" data-csv="${a.id}">⇩ CSV</button>
         <button class="ghost-btn" data-pdf="${a.id}">⇩ PDF</button>
@@ -1616,6 +1768,15 @@ function renderArchiv(){
     box.appendChild(row);
   });
 
+  box.querySelectorAll('[data-statussel]').forEach(sel=>{
+    sel.addEventListener('change', e=>{
+      const a = angebote.find(x=>x.id===e.target.dataset.statussel);
+      a.status = e.target.value;
+      saveAngebote();
+      renderArchiv();
+      renderKundenVerwaltung();
+    });
+  });
   box.querySelectorAll('[data-load]').forEach(btn=>{
     btn.addEventListener('click', ()=> loadAngebotInForm(angebote.find(x=>x.id===btn.dataset.load)));
   });
@@ -1659,6 +1820,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
   const eintrag = {
     id: uid('a'),
     nummer,
+    status: 'offen',
     datum: new Date().toLocaleDateString('de-DE'),
     gueltigBis: $('#gueltigBis').value,
     liefertermin: $('#liefertermin').value,
@@ -1683,7 +1845,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
 $('#exportBackupBtn').addEventListener('click', ()=>{
   const backup = {
     exportiertAm: new Date().toISOString(),
-    filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, vorlagen
+    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, vorlagen
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -1702,8 +1864,9 @@ $('#backupFile').addEventListener('change', async e=>{
   try{
     const text = await file.text();
     const data = JSON.parse(text);
-    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Filamente, Drucker, Zubehör, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
+    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
 
+    if(data.firma) firma = Object.assign({}, firma, data.firma);
     if(Array.isArray(data.filamente)) filamente = data.filamente;
     if(data.allgemein) allgemein = Object.assign({}, allgemein, data.allgemein);
     if(Array.isArray(data.mengenrabatt)) mengenrabatt = data.mengenrabatt;
@@ -1713,8 +1876,8 @@ $('#backupFile').addEventListener('change', async e=>{
     if(Array.isArray(data.kunden)) kunden = data.kunden;
     if(Array.isArray(data.vorlagen)) vorlagen = data.vorlagen;
 
-    await Promise.all([saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveVorlagen()]);
-    renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
+    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveVorlagen()]);
+    renderFirmaInputs(); renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
     renderDruckerList(); renderZubehoerList(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){
