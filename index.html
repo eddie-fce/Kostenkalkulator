@@ -20,7 +20,8 @@
   <div class="tabs">
     <div class="tab active" data-view="kalk"><span class="n">01</span>Kalkulation</div>
     <div class="tab" data-view="archiv"><span class="n">02</span>Archiv</div>
-    <div class="tab" data-view="stamm"><span class="n">03</span>Stammdaten</div>
+    <div class="tab" data-view="kunden"><span class="n">03</span>Kunden</div>
+    <div class="tab" data-view="stamm"><span class="n">04</span>Stammdaten</div>
   </div>
 
   <!-- ===================== KALKULATION ===================== -->
@@ -41,6 +42,16 @@
         <div class="field">
           <label>Angebot gültig bis</label>
           <input id="gueltigBis" type="date">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Einleitungstext (optional, erscheint im PDF vor der Positionstabelle)</label>
+          <textarea id="einleitungstext" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label>Schlusstext (optional, erscheint im PDF nach der Kostenaufstellung)</label>
+          <textarea id="schlusstext" rows="2"></textarea>
         </div>
       </div>
     </div>
@@ -73,6 +84,7 @@
           <input id="kundeTelefon">
         </div>
       </div>
+      <div class="hint" id="kundeInfoHint" style="margin:10px 0 0;"></div>
     </div>
 
     <div class="panel">
@@ -83,12 +95,24 @@
         <button class="ghost-btn" id="mf3ImportBtn">⇪ Gesliste .gcode.3mf importieren</button>
         <input type="file" id="gcodeFile" accept=".gcode,.gco,.g" style="display:none;">
         <button class="ghost-btn" id="gcodeImportBtn">⇪ G-Code importieren</button>
+        <input type="file" id="estimateFile" accept=".stl,.3mf" style="display:none;">
+        <button class="ghost-btn" id="estimateImportBtn" title="Grobe Schätzung aus einer ungeslicten STL/3MF-Datei, ohne Slicing">⚡ Sofortschätzung (STL/3MF)</button>
         <select id="vorlageSelect" style="max-width:220px; width:auto;">
           <option value="">Vorlage wählen…</option>
         </select>
         <button class="ghost-btn" id="vorlageLadenBtn">+ Als Position laden</button>
       </div>
       <div id="mf3Msg"></div>
+      <datalist id="einheitOptions">
+        <option value="Stk.">
+        <option value="Std.">
+        <option value="Pauschale">
+        <option value="Satz">
+        <option value="m">
+        <option value="m²">
+        <option value="kg">
+        <option value="g">
+      </datalist>
       <div id="positionList"></div>
       <div class="btn-row">
         <button class="add-btn" id="addPositionBtn">+ Position hinzufügen</button>
@@ -97,7 +121,7 @@
     </div>
 
     <div class="panel">
-      <h2>Liefertermin & Express</h2>
+      <h2>Liefertermin, Versand & Express</h2>
       <p class="hint" id="terminHint">Schätzung basiert auf Gesamt-Druckzeit aller Positionen, Anzahl Drucker und den in den Stammdaten hinterlegten Puffertagen.</p>
       <div class="row g3">
         <div class="field">
@@ -114,6 +138,12 @@
             Express-Auftrag, Zuschlag (%)
           </label>
           <input id="expressPct" type="number" min="0" max="100" step="1" value="0" style="margin-top:6px;">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Versand & Verpackung (€)</label>
+          <input id="versand" type="number" min="0" step="0.5" value="0">
         </div>
       </div>
     </div>
@@ -162,8 +192,101 @@
     </div>
   </div>
 
+  <!-- ===================== KUNDEN ===================== -->
+  <div class="view" id="view-kunden">
+    <div class="panel">
+      <h2>Kundenverwaltung</h2>
+      <p class="hint">Alphabetisch sortiert. Name anklicken für Anschrift, Kontaktdaten, Kennzahlen und zurückliegende Angebote.</p>
+      <div class="field" style="margin-bottom:14px;">
+        <label>Suche</label>
+        <input id="kundenSuche" placeholder="Name oder Firma…">
+      </div>
+      <div id="kundenVerwaltungList"></div>
+      <div class="empty" id="kundenVerwaltungEmpty" style="display:none;">Noch keine Kunden hinterlegt.</div>
+      <button class="add-btn" id="addKundeVerwaltungBtn">+ Kunde hinzufügen</button>
+    </div>
+  </div>
+
   <!-- ===================== STAMMDATEN ===================== -->
   <div class="view" id="view-stamm">
+
+    <div class="panel">
+      <h2>Firmenprofil (Absender)</h2>
+      <p class="hint">Erscheint als Briefkopf auf dem PDF-Angebot. Das Logo wird beim Hochladen automatisch verkleinert und nur lokal gespeichert.</p>
+      <div class="row g3">
+        <div class="field">
+          <label>Firmenname</label>
+          <input id="firmaName" placeholder="z. B. Mustermann 3D-Druck">
+        </div>
+        <div class="field">
+          <label>Ansprechpartner (optional)</label>
+          <input id="firmaAnsprechpartner">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input id="firmaTelefon">
+        </div>
+      </div>
+      <div class="row g3" style="margin-top:12px;">
+        <div class="field">
+          <label>E-Mail</label>
+          <input id="firmaEmail" type="email">
+        </div>
+        <div class="field">
+          <label>Website (optional)</label>
+          <input id="firmaWebsite" placeholder="www.beispiel.de">
+        </div>
+        <div class="field">
+          <label>Adresse</label>
+          <input id="firmaAdresse" placeholder="Straße, PLZ Ort">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>USt-ID (falls vorhanden)</label>
+          <input id="firmaUstId" placeholder="DE123456789">
+        </div>
+        <div class="field">
+          <label>Steuernummer (alternativ zur USt-ID)</label>
+          <input id="firmaSteuernummer">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>IBAN (für Zahlungshinweis auf dem PDF)</label>
+          <input id="firmaIban" placeholder="DE00 0000 0000 0000 0000 00">
+        </div>
+        <div class="field">
+          <label>BIC (optional)</label>
+          <input id="firmaBic">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:14px; align-items:end;">
+        <div class="field">
+          <label>Logo</label>
+          <input type="file" id="firmaLogoFile" accept="image/*" style="display:none;">
+          <button class="ghost-btn" id="firmaLogoBtn" type="button">⇪ Logo hochladen</button>
+        </div>
+        <div class="field" id="firmaLogoPreviewWrap" style="display:none;">
+          <label>Vorschau</label>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <img id="firmaLogoPreview" style="max-height:48px; max-width:140px; border-radius:6px; background:#fff; padding:4px;">
+            <button class="icon-btn" id="firmaLogoRemoveBtn" title="Logo entfernen" type="button">✕</button>
+          </div>
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:14px;">
+        <div class="field">
+          <label title="Erscheint standardmäßig als Einleitungstext auf dem PDF-Angebot, je Angebot überschreibbar">Standard-Einleitungstext</label>
+          <textarea id="firmaStandardEinleitung" rows="2" placeholder="Vielen Dank für Ihre Anfrage. Gerne unterbreiten wir Ihnen folgendes Angebot:"></textarea>
+        </div>
+        <div class="field">
+          <label title="Erscheint standardmäßig als Schlusstext auf dem PDF-Angebot, je Angebot überschreibbar">Standard-Schlusstext</label>
+          <textarea id="firmaStandardSchluss" rows="2" placeholder="Wir freuen uns auf Ihre Auftragserteilung."></textarea>
+        </div>
+      </div>
+      <div class="save-msg" id="firmaSaveMsg">Gespeichert.</div>
+    </div>
 
     <div class="panel">
       <h2>Filamente & Farben</h2>
@@ -175,7 +298,7 @@
 
     <div class="panel">
       <h2>Drucker</h2>
-      <p class="hint">Jede Position wird einem Drucker zugeordnet. Die Leistung (Watt) bestimmt die Stromkosten der Position; nur AMS-fähige Drucker erlauben mehrere Filamente (Multicolor) je Position ohne manuellen Filamentwechsel.</p>
+      <p class="hint">Jede Position wird einem Drucker zugeordnet. Die Leistung (Watt) bestimmt die Stromkosten der Position; nur AMS-fähige Drucker erlauben mehrere Filamente (Multicolor) je Position ohne manuellen Filamentwechsel. Anschaffungspreis + erwartete Lebensdauer ergeben einen zusätzlichen Abschreibungssatz (€/Std.), der wie die Wartungskosten in jede Kalkulation einfließt.</p>
       <div id="druckerList"></div>
       <div class="empty" id="druckerEmpty" style="display:none;">Noch keine Drucker hinterlegt.</div>
       <button class="add-btn" id="addDruckerBtn">+ Drucker hinzufügen</button>
@@ -251,6 +374,22 @@
           <input id="genPufferTage" type="number" min="0" step="1" placeholder="2">
         </div>
       </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label title="Wird bei neuen Aufträgen ins Feld „Versand & Verpackung“ vorausgefüllt">Standard Versandpauschale (€)</label>
+          <input id="genVersand" type="number" min="0" step="0.5" placeholder="0">
+        </div>
+        <div class="field">
+          <label title="Grobe Sofortschätzung aus STL/3MF ohne Slicing: angenommene Fülldichte">Sofortschätzung: Infill (%)</label>
+          <input id="genInfillEstimate" type="number" min="1" max="100" step="1" placeholder="20">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label title="Grobe Sofortschätzung aus STL/3MF ohne Slicing: angenommener Materialdurchsatz für die Druckzeit">Sofortschätzung: Volumendurchsatz (mm³/s)</label>
+          <input id="genVolumenrate" type="number" min="1" step="1" placeholder="15">
+        </div>
+      </div>
       <div class="save-msg" id="genSaveMsg">Gespeichert.</div>
     </div>
 
@@ -267,14 +406,6 @@
         <input id="genMwst" type="number" min="0" step="1" placeholder="19" style="max-width:160px;">
       </div>
       <p class="hint" style="margin-top:10px; margin-bottom:0;">Diese Angabe ersetzt keine steuerliche Beratung – im Zweifel mit Steuerberater:in abstimmen.</p>
-    </div>
-
-    <div class="panel">
-      <h2>Kunden</h2>
-      <p class="hint">Wird automatisch befüllt, sobald im Auftrag ein neuer Kundenname gespeichert wird. Hier auch manuell anlegen, bearbeiten oder löschen möglich.</p>
-      <div id="kundenList"></div>
-      <div class="empty" id="kundenEmpty" style="display:none;">Noch keine Kunden hinterlegt.</div>
-      <button class="add-btn" id="addKundeBtn">+ Kunde hinzufügen</button>
     </div>
 
     <div class="panel">

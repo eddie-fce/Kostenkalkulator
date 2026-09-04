@@ -28,17 +28,26 @@ const MATERIAL_TO_GROUP = {
 // Sinnvolle Standard-€/h je Gruppe – dies ist der VOLLSTÄNDIGE Wartungssatz (kein Zuschlag mehr), danach frei anpassbar
 const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "PC/PA":0.45, "CF/GF":0.70 };
 
+// Grobe Dichte-Richtwerte (g/cm³) je Material, nur für die Sofortschätzung aus STL/3MF (ohne Slicing) genutzt
+const MATERIAL_DENSITY = {
+  "PLA":1.24, "PETG":1.27, "TPU":1.21, "ABS":1.04, "ASA":1.07, "PC":1.20,
+  "PA (Nylon)":1.14, "PVA":1.23, "PLA-CF":1.30, "PETG-CF":1.30, "PA-CF":1.20,
+  "PET-CF":1.35, "PPA-CF":1.25, "Sonstiges":1.24
+};
+
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2 };
+let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
+let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, versandStandard:0, infillEstimatePct:20, volumenrateMm3S:15 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
 let zubehoer = [];               // [{id, name, preis}] – Zubehör/Hardware, Preis pro Stück
 let drucker = [];                // [{id, name, leistung, amsFaehig}]
-let kunden = [];                 // [{id, name, firma, adresse, email, telefon}]
+let kunden = [];                 // [{id, nummer, name, firma, adresse, email, telefon, ustId, gruppe, rabattPct, zahlungsbedingungen, lieferbedingungen, notizen}]
+let kundenCounter = 0;
 let vorlagen = [];                // [{id, name, druckzeit, arbeitszeit, slots, zubehoerItems, druckerId}]
-let positionen = [];             // [{id, name, stueckzahl, druckzeit, arbeitszeit, druckerId, zubehoerItems, slots:[{filamentId,gramm}x4]}]
+let positionen = [];             // [{id, name, stueckzahl, einheit, druckzeit, arbeitszeit, druckerId, zubehoerItems, slots:[{filamentId,gramm}x4]}]
 let angebote = [];               // [{id, nummer, datum, gueltigBis, liefertermin, jobName, kunde, express, expressPct, positionen, margin, extraDiscount, ergebnis}]
 let angebotsCounter = 0;
 
@@ -52,6 +61,10 @@ async function loadData(){
     const f = await storage.get('filamente', false);
     filamente = f ? JSON.parse(f.value) : [];
   }catch(e){ filamente = []; }
+  try{
+    const fi = await storage.get('firma', false);
+    if(fi) firma = Object.assign({}, firma, JSON.parse(fi.value));
+  }catch(e){ /* Standardwerte bleiben */ }
   try{
     const g = await storage.get('allgemein', false);
     if(g) allgemein = Object.assign({}, allgemein, JSON.parse(g.value)); // mit Defaults mergen, falls neue Felder fehlen
@@ -78,8 +91,8 @@ async function loadData(){
     // Migration/Erstbefüllung: bisherige globale Druckerleistung als Basis für zwei Standard-Profile übernehmen
     const seedLeistung = allgemein.leistung || 150;
     drucker = [
-      {id: uid('d'), name:'P1S #1', leistung: seedLeistung, amsFaehig:false},
-      {id: uid('d'), name:'P1S #2 (AMS)', leistung: seedLeistung, amsFaehig:true}
+      {id: uid('d'), name:'P1S #1', leistung: seedLeistung, amsFaehig:false, anschaffungspreis:0, lebensdauerStd:0},
+      {id: uid('d'), name:'P1S #2 (AMS)', leistung: seedLeistung, amsFaehig:true, anschaffungspreis:0, lebensdauerStd:0}
     ];
     saveDrucker();
   }
@@ -87,6 +100,14 @@ async function loadData(){
     const k = await storage.get('kunden', false);
     kunden = k ? JSON.parse(k.value) : [];
   }catch(e){ kunden = []; }
+  try{
+    const kc = await storage.get('kundenCounter', false);
+    kundenCounter = kc ? parseInt(kc.value)||0 : 0;
+  }catch(e){ kundenCounter = 0; }
+  // Migration: Kunden aus älteren Versionen ohne Kundennummer nachträglich durchnummerieren
+  let kundenNummerMigriert = false;
+  kunden.forEach(k=>{ if(!k.nummer){ k.nummer = nextKundenNummer(); kundenNummerMigriert = true; } });
+  if(kundenNummerMigriert){ saveKunden(); saveKundenCounter(); }
   try{
     const v = await storage.get('vorlagen', false);
     vorlagen = v ? JSON.parse(v.value) : [];
@@ -106,11 +127,15 @@ async function loadData(){
   const d = new Date(); d.setDate(d.getDate()+14);
   $('#gueltigBis').value = d.toISOString().slice(0,10);
   $('#expressPct').value = allgemein.expressPct;
+  $('#versand').value = allgemein.versandStandard;
+  $('#einleitungstext').value = firma.standardEinleitung||'';
+  $('#schlusstext').value = firma.standardSchluss||'';
 
+  renderFirmaInputs();
   renderFilamentList();
   renderDruckerList();
   renderZubehoerList();
-  renderKundenList();
+  renderKundenVerwaltung();
   renderKundenDatalist();
   renderVorlagenList();
   renderVorlageSelect();
@@ -127,6 +152,12 @@ async function loadData(){
 async function saveFilamente(){
   try{ await storage.set('filamente', JSON.stringify(filamente), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveFirma(){
+  try{
+    await storage.set('firma', JSON.stringify(firma), false);
+    flashSaved('#firmaSaveMsg');
+  }catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveAllgemein(){
   try{
@@ -154,6 +185,10 @@ async function saveKunden(){
   try{ await storage.set('kunden', JSON.stringify(kunden), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
+async function saveKundenCounter(){
+  try{ await storage.set('kundenCounter', String(kundenCounter), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
 async function saveVorlagen(){
   try{ await storage.set('vorlagen', JSON.stringify(vorlagen), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
@@ -166,8 +201,9 @@ async function saveAngebotsCounter(){
   try{ await storage.set('angebotsCounter', String(angebotsCounter), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
-function flashSaved(){
-  const el = $('#genSaveMsg');
+function flashSaved(sel){
+  const el = $(sel || '#genSaveMsg');
+  if(!el) return;
   el.classList.add('show');
   clearTimeout(flashSaved._t);
   flashSaved._t = setTimeout(()=>el.classList.remove('show'),1200);
@@ -181,6 +217,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     tab.classList.add('active');
     $('#view-'+tab.dataset.view).classList.add('active');
     if(tab.dataset.view==='kalk' && typeof refreshLivePreview==='function') refreshLivePreview();
+    if(tab.dataset.view==='kunden' && typeof renderKundenVerwaltung==='function') renderKundenVerwaltung();
   });
 });
 
@@ -194,6 +231,79 @@ function guessHex(name){
   for(const k in map){ if(n.includes(k)) return map[k]; }
   return '#666a75';
 }
+
+// ---------- Stammdaten: Firmenprofil (Absender) ----------
+function renderFirmaInputs(){
+  $('#firmaName').value = firma.name||'';
+  $('#firmaAnsprechpartner').value = firma.ansprechpartner||'';
+  $('#firmaTelefon').value = firma.telefon||'';
+  $('#firmaEmail').value = firma.email||'';
+  $('#firmaWebsite').value = firma.website||'';
+  $('#firmaAdresse').value = firma.adresse||'';
+  $('#firmaUstId').value = firma.ustId||'';
+  $('#firmaSteuernummer').value = firma.steuernummer||'';
+  $('#firmaIban').value = firma.iban||'';
+  $('#firmaBic').value = firma.bic||'';
+  $('#firmaStandardEinleitung').value = firma.standardEinleitung||'';
+  $('#firmaStandardSchluss').value = firma.standardSchluss||'';
+  if(firma.logoDataUrl){
+    $('#firmaLogoPreview').src = firma.logoDataUrl;
+    $('#firmaLogoPreviewWrap').style.display = 'block';
+  } else {
+    $('#firmaLogoPreviewWrap').style.display = 'none';
+  }
+}
+['firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic','firmaStandardEinleitung','firmaStandardSchluss'].forEach(id=>{
+  $('#'+id).addEventListener('change', ()=>{
+    firma.name = $('#firmaName').value.trim();
+    firma.ansprechpartner = $('#firmaAnsprechpartner').value.trim();
+    firma.telefon = $('#firmaTelefon').value.trim();
+    firma.email = $('#firmaEmail').value.trim();
+    firma.website = $('#firmaWebsite').value.trim();
+    firma.adresse = $('#firmaAdresse').value.trim();
+    firma.ustId = $('#firmaUstId').value.trim();
+    firma.steuernummer = $('#firmaSteuernummer').value.trim();
+    firma.iban = $('#firmaIban').value.trim();
+    firma.bic = $('#firmaBic').value.trim();
+    firma.standardEinleitung = $('#firmaStandardEinleitung').value;
+    firma.standardSchluss = $('#firmaStandardSchluss').value;
+    saveFirma();
+  });
+});
+
+$('#firmaLogoBtn').addEventListener('click', ()=> $('#firmaLogoFile').click());
+$('#firmaLogoFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    const img = new Image();
+    img.onload = ()=>{
+      // Vor dem Speichern verkleinern, damit localStorage nicht unnötig aufgebläht wird
+      const maxDim = 400;
+      let w = img.width, h = img.height;
+      if(w > maxDim || h > maxDim){
+        const scale = Math.min(maxDim/w, maxDim/h);
+        w = Math.round(w*scale); h = Math.round(h*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      firma.logoDataUrl = canvas.toDataURL('image/png');
+      firma.logoW = w; firma.logoH = h;
+      saveFirma();
+      renderFirmaInputs();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+$('#firmaLogoRemoveBtn').addEventListener('click', ()=>{
+  firma.logoDataUrl = ''; firma.logoW = 0; firma.logoH = 0;
+  saveFirma();
+  renderFirmaInputs();
+});
 
 // ---------- Stammdaten: Filamente ----------
 function renderFilamentList(){
@@ -261,38 +371,64 @@ $('#addFilamentBtn').addEventListener('click', ()=>{
 });
 
 // ---------- Stammdaten: Drucker ----------
+// Abschreibung: Anschaffungspreis / erwartete Lebensdauer (Std.) = zusätzlicher €/Std.-Kostenfaktor
+function druckerAbschreibungProStunde(d){
+  if(!d || !d.lebensdauerStd) return 0;
+  return (d.anschaffungspreis||0) / d.lebensdauerStd;
+}
+
 function renderDruckerList(){
   const box = $('#druckerList');
   box.innerHTML = '';
   $('#druckerEmpty').style.display = drucker.length ? 'none' : 'block';
 
   drucker.forEach(d=>{
-    const row = document.createElement('div');
-    row.className = 'drucker-row';
-    row.innerHTML = `
-      <div class="field">
-        <label>Name</label>
-        <input data-id="${d.id}" data-field="name" value="${d.name||''}" placeholder="z. B. P1S #1">
+    const card = document.createElement('div');
+    card.className = 'drucker-card';
+    const abschreibung = druckerAbschreibungProStunde(d);
+    card.innerHTML = `
+      <div class="drow-top">
+        <div class="row g3">
+          <div class="field">
+            <label>Name</label>
+            <input data-id="${d.id}" data-field="name" value="${d.name||''}" placeholder="z. B. P1S #1">
+          </div>
+          <div class="field">
+            <label>Leistung (W)</label>
+            <input data-id="${d.id}" data-field="leistung" type="number" min="0" step="1" value="${d.leistung||0}">
+          </div>
+          <label class="chk-field">
+            <input type="checkbox" data-id="${d.id}" data-field="amsFaehig" ${d.amsFaehig?'checked':''}>
+            AMS-fähig
+          </label>
+        </div>
+        <button class="icon-btn" data-del="${d.id}" title="Drucker löschen">✕</button>
       </div>
-      <div class="field">
-        <label>Leistung (W)</label>
-        <input data-id="${d.id}" data-field="leistung" type="number" min="0" step="1" value="${d.leistung||0}">
+      <div class="row g3">
+        <div class="field">
+          <label>Anschaffungspreis (€)</label>
+          <input data-id="${d.id}" data-field="anschaffungspreis" type="number" min="0" step="10" value="${d.anschaffungspreis||0}">
+        </div>
+        <div class="field">
+          <label>Erwartete Lebensdauer (Std.)</label>
+          <input data-id="${d.id}" data-field="lebensdauerStd" type="number" min="0" step="100" value="${d.lebensdauerStd||0}">
+        </div>
+        <div class="field">
+          <label>Abschreibung</label>
+          <span class="tier-tag">€${fmt(abschreibung)} / Std.</span>
+        </div>
       </div>
-      <label class="chk-field">
-        <input type="checkbox" data-id="${d.id}" data-field="amsFaehig" ${d.amsFaehig?'checked':''}>
-        AMS-fähig
-      </label>
-      <button class="icon-btn" data-del="${d.id}" title="Drucker löschen">✕</button>
     `;
-    box.appendChild(row);
+    box.appendChild(card);
   });
 
   box.querySelectorAll('[data-field]').forEach(el=>{
     el.addEventListener('input', e=>{
       const d = drucker.find(x=>x.id===e.target.dataset.id);
       const field = e.target.dataset.field;
-      d[field] = field==='leistung' ? (parseFloat(e.target.value)||0) : (field==='amsFaehig' ? e.target.checked : e.target.value);
+      d[field] = field==='amsFaehig' ? e.target.checked : (field==='name' ? e.target.value : (parseFloat(e.target.value)||0));
       saveDrucker();
+      if(field==='anschaffungspreis' || field==='lebensdauerStd') renderDruckerList();
       renderPositionen();
       refreshLivePreview();
     });
@@ -310,7 +446,7 @@ function renderDruckerList(){
 }
 
 $('#addDruckerBtn').addEventListener('click', ()=>{
-  drucker.push({id:uid('d'), name:`Drucker ${drucker.length+1}`, leistung:150, amsFaehig:false});
+  drucker.push({id:uid('d'), name:`Drucker ${drucker.length+1}`, leistung:150, amsFaehig:false, anschaffungspreis:0, lebensdauerStd:0});
   saveDrucker();
   renderDruckerList();
   renderPositionen();
@@ -365,85 +501,52 @@ $('#addZubehoerBtn').addEventListener('click', ()=>{
   renderZubehoerList();
 });
 
-// ---------- Stammdaten: Kunden ----------
-function renderKundenList(){
-  const box = $('#kundenList');
-  box.innerHTML = '';
-  $('#kundenEmpty').style.display = kunden.length ? 'none' : 'block';
+// ---------- Kundenverwaltung (eigener Tab) ----------
+let kundenVerwaltungOpen = new Set(); // IDs der aufgeklappten Kunden (nur zur Laufzeit)
+let kundenSucheText = '';
 
-  kunden.forEach(k=>{
-    const row = document.createElement('div');
-    row.className = 'kunde-row';
-    row.innerHTML = `
-      <div class="krow-top">
-        <div class="row g2" style="flex:1;">
-          <div class="field">
-            <label>Name</label>
-            <input data-id="${k.id}" data-field="name" value="${k.name||''}">
-          </div>
-          <div class="field">
-            <label>Firma</label>
-            <input data-id="${k.id}" data-field="firma" value="${k.firma||''}">
-          </div>
-        </div>
-        <button class="icon-btn" data-del="${k.id}" title="Kunde löschen">✕</button>
-      </div>
-      <div class="row g3">
-        <div class="field">
-          <label>E-Mail</label>
-          <input data-id="${k.id}" data-field="email" type="email" value="${k.email||''}">
-        </div>
-        <div class="field">
-          <label>Telefon</label>
-          <input data-id="${k.id}" data-field="telefon" value="${k.telefon||''}">
-        </div>
-        <div class="field">
-          <label>Adresse</label>
-          <input data-id="${k.id}" data-field="adresse" value="${k.adresse||''}">
-        </div>
-      </div>
-    `;
-    box.appendChild(row);
-  });
+// Kundennummer wird automatisch vergeben (wie die Angebotsnummer) – nie manuell eingetragen
+function nextKundenNummer(){
+  kundenCounter++;
+  return `K-${String(kundenCounter).padStart(4,'0')}`;
+}
 
-  box.querySelectorAll('[data-field]').forEach(el=>{
-    el.addEventListener('input', e=>{
-      const k = kunden.find(x=>x.id===e.target.dataset.id);
-      k[e.target.dataset.field] = e.target.value;
-      saveKunden();
-      renderKundenDatalist();
-    });
-  });
-  box.querySelectorAll('[data-del]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      kunden = kunden.filter(x=>x.id!==btn.dataset.del);
-      saveKunden();
-      renderKundenList();
-      renderKundenDatalist();
-    });
-  });
+function findKundeByName(name){
+  name = (name||'').trim().toLowerCase();
+  return name ? kunden.find(x=> (x.name||'').trim().toLowerCase() === name) : null;
 }
 
 function renderKundenDatalist(){
   $('#kundenDatalist').innerHTML = kunden.map(k=>`<option value="${(k.name||'').replace(/"/g,'&quot;')}">`).join('');
 }
 
-$('#addKundeBtn').addEventListener('click', ()=>{
-  kunden.push({id:uid('k'), name:'', firma:'', email:'', telefon:'', adresse:''});
-  saveKunden();
-  renderKundenList();
-});
+// Kurzinfo (Kundennummer, Gruppe, Rabatt, Zahlungs-/Lieferbedingungen) unter dem Namensfeld aktuell halten
+function refreshKundeInfoHint(){
+  const el = $('#kundeInfoHint');
+  if(!el) return;
+  const k = findKundeByName($('#kundeName').value);
+  if(!k){ el.textContent = ''; return; }
+  const parts = [`Kundennummer: ${k.nummer||'–'}`];
+  if(k.gruppe) parts.push(`Gruppe: ${k.gruppe}`);
+  if(k.rabattPct) parts.push(`Standard-Rabatt: ${k.rabattPct}%`);
+  if(k.zahlungsbedingungen) parts.push(`Zahlung: ${k.zahlungsbedingungen}`);
+  if(k.lieferbedingungen) parts.push(`Lieferung: ${k.lieferbedingungen}`);
+  el.textContent = parts.join(' · ');
+}
+
+// Übernimmt Kontaktdaten + Standard-Rabatt eines bekannten Kunden ins Auftragsformular (Name wird separat gesetzt)
+function applyKundeAutofill(k){
+  $('#kundeFirma').value = k.firma||'';
+  $('#kundeEmail').value = k.email||'';
+  $('#kundeTelefon').value = k.telefon||'';
+  $('#kundeAdresse').value = k.adresse||'';
+  if(k.rabattPct && !(parseFloat($('#extraDiscount').value)>0)) $('#extraDiscount').value = k.rabattPct;
+  refreshKundeInfoHint();
+}
 
 $('#kundeName').addEventListener('input', ()=>{
-  const name = $('#kundeName').value.trim();
-  if(!name) return;
-  const k = kunden.find(x=> (x.name||'').trim().toLowerCase() === name.toLowerCase());
-  if(k){
-    $('#kundeFirma').value = k.firma||'';
-    $('#kundeEmail').value = k.email||'';
-    $('#kundeTelefon').value = k.telefon||'';
-    $('#kundeAdresse').value = k.adresse||'';
-  }
+  const k = findKundeByName($('#kundeName').value);
+  if(k) applyKundeAutofill(k); else refreshKundeInfoHint();
 });
 
 function upsertKunde(){
@@ -456,14 +559,190 @@ function upsertKunde(){
     telefon: $('#kundeTelefon').value.trim(),
     adresse: $('#kundeAdresse').value.trim()
   };
-  let k = kunden.find(x=> (x.name||'').trim().toLowerCase() === name.toLowerCase());
+  let k = findKundeByName(name);
   if(k){ Object.assign(k, data); }
-  else { k = Object.assign({id:uid('k')}, data); kunden.push(k); }
+  else {
+    k = Object.assign({id:uid('k'), nummer: nextKundenNummer(), ustId:'', gruppe:'', rabattPct:0, zahlungsbedingungen:'', lieferbedingungen:'', notizen:''}, data);
+    kunden.push(k);
+    saveKundenCounter();
+  }
   saveKunden();
-  renderKundenList();
+  renderKundenVerwaltung();
   renderKundenDatalist();
   return k;
 }
+
+// Angebote, Gesamtumsatz und letztes Angebot für einen Kunden (Namensabgleich, case-insensitive)
+function kundeStats(k){
+  const name = (k.name||'').trim().toLowerCase();
+  const matches = name ? angebote.filter(a => a.kunde && (a.kunde.name||'').trim().toLowerCase() === name) : [];
+  const summe = matches.reduce((s,a)=> s + (a.ergebnis && a.ergebnis.gesamt || 0), 0);
+  const angenommen = matches.filter(a => angebotStatusInfo(a).value === 'angenommen');
+  const summeAngenommen = angenommen.reduce((s,a)=> s + (a.ergebnis && a.ergebnis.gesamt || 0), 0);
+  return {matches, summe, angenommenCount: angenommen.length, summeAngenommen, letztes: matches.length ? matches[matches.length-1] : null};
+}
+
+function renderKundenVerwaltung(){
+  const box = $('#kundenVerwaltungList');
+  box.innerHTML = '';
+  const q = kundenSucheText.trim().toLowerCase();
+  const list = kunden
+    .filter(k => !q || (k.name||'').toLowerCase().includes(q) || (k.firma||'').toLowerCase().includes(q))
+    .sort((a,b)=> (a.name||'').localeCompare(b.name||'', 'de', {sensitivity:'base'}));
+  $('#kundenVerwaltungEmpty').style.display = list.length ? 'none' : 'block';
+
+  list.forEach(k=>{
+    const {matches, summe, angenommenCount, summeAngenommen, letztes} = kundeStats(k);
+    const row = document.createElement('div');
+    row.className = 'kv-row' + (kundenVerwaltungOpen.has(k.id) ? ' open' : '');
+    row.innerHTML = `
+      <div class="kv-head" data-toggle="${k.id}">
+        <div><span class="kv-name">${k.name || 'Ohne Namen'}</span><span class="kv-meta"> · ${k.nummer||'–'}</span>${k.firma?`<span class="kv-meta"> · ${k.firma}</span>`:''}</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="kv-meta">${matches.length} Angebot(e)${matches.length?' · '+fmt(summe)+' €':''}</span>
+          <span class="kv-chevron">▶</span>
+        </div>
+      </div>
+      <div class="kv-body">
+        <div class="row g3">
+          <div class="field">
+            <label>Name</label>
+            <input data-kv="${k.id}" data-field="name" value="${k.name||''}">
+          </div>
+          <div class="field">
+            <label>Firma</label>
+            <input data-kv="${k.id}" data-field="firma" value="${k.firma||''}">
+          </div>
+          <div class="field">
+            <label>Telefon</label>
+            <input data-kv="${k.id}" data-field="telefon" value="${k.telefon||''}">
+          </div>
+        </div>
+        <div class="row g2" style="margin-top:12px;">
+          <div class="field">
+            <label>E-Mail</label>
+            <input data-kv="${k.id}" data-field="email" type="email" value="${k.email||''}">
+          </div>
+          <div class="field">
+            <label>Anschrift</label>
+            <input data-kv="${k.id}" data-field="adresse" value="${k.adresse||''}" placeholder="Straße, PLZ Ort">
+          </div>
+        </div>
+        <div class="row g3" style="margin-top:12px;">
+          <div class="field">
+            <label>USt-ID (optional)</label>
+            <input data-kv="${k.id}" data-field="ustId" value="${k.ustId||''}">
+          </div>
+          <div class="field">
+            <label>Kundengruppe</label>
+            <input data-kv="${k.id}" data-field="gruppe" value="${k.gruppe||''}" placeholder="z. B. Stammkunde, Gewerbe">
+          </div>
+          <div class="field">
+            <label>Standard-Rabatt (%)</label>
+            <input data-kv="${k.id}" data-field="rabattPct" type="number" min="0" max="100" step="1" value="${k.rabattPct||0}">
+          </div>
+        </div>
+        <div class="row g2" style="margin-top:12px;">
+          <div class="field">
+            <label>Zahlungsbedingungen</label>
+            <input data-kv="${k.id}" data-field="zahlungsbedingungen" value="${k.zahlungsbedingungen||''}" placeholder="z. B. 14 Tage netto">
+          </div>
+          <div class="field">
+            <label>Lieferbedingungen</label>
+            <input data-kv="${k.id}" data-field="lieferbedingungen" value="${k.lieferbedingungen||''}" placeholder="z. B. Abholung, versicherter Versand">
+          </div>
+        </div>
+        <div class="field" style="margin-top:12px;">
+          <label>Interne Notizen</label>
+          <textarea data-kv="${k.id}" data-field="notizen" rows="2">${k.notizen||''}</textarea>
+        </div>
+        <div class="kv-stats">
+          <span>Angebote gesamt: <b>${matches.length}</b></span>
+          <span>Gesamtumsatz: <b>${fmt(summe)} €</b></span>
+          <span>Angenommen: <b>${angenommenCount} (${fmt(summeAngenommen)} €)</b></span>
+          <span>Letztes Angebot: <b>${letztes ? letztes.nummer+' ('+letztes.datum+')' : '–'}</b></span>
+        </div>
+        <div class="btn-row" style="margin-bottom:4px;">
+          <button class="ghost-btn" data-newangebot="${k.id}">+ Neues Angebot für diesen Kunden</button>
+          <button class="icon-btn" data-delkv="${k.id}" title="Kunde löschen">✕</button>
+        </div>
+        ${matches.length ? '<div class="slot-title" style="margin-top:10px;">ZURÜCKLIEGENDE ANGEBOTE</div>' : ''}
+        ${[...matches].reverse().map(a=>{
+          const info = angebotStatusInfo(a);
+          return `
+          <div class="kv-angebot-row">
+            <span>${a.nummer} · ${a.datum} · ${a.ergebnis.sumStueckzahl} ${a.ergebnis.einheitGesamt||'Stk.'} · <span class="status-tag ${info.cls}">${info.label}</span></span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <b style="color:var(--accent);">${fmt(a.ergebnis.gesamt)} €</b>
+              <button class="ghost-btn" data-kvload="${a.id}">Laden</button>
+            </span>
+          </div>
+        `;}).join('')}
+      </div>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-toggle]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = el.dataset.toggle;
+      if(kundenVerwaltungOpen.has(id)) kundenVerwaltungOpen.delete(id); else kundenVerwaltungOpen.add(id);
+      renderKundenVerwaltung();
+    });
+  });
+  box.querySelectorAll('[data-field]').forEach(el=>{
+    el.addEventListener('click', e=> e.stopPropagation());
+    el.addEventListener('input', e=>{
+      const k = kunden.find(x=>x.id===e.target.dataset.kv);
+      const field = e.target.dataset.field;
+      k[field] = field==='rabattPct' ? (parseFloat(e.target.value)||0) : e.target.value;
+      saveKunden();
+      renderKundenDatalist();
+    });
+  });
+  box.querySelectorAll('[data-delkv]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(!confirm('Kunde wirklich löschen? Bereits gespeicherte Angebote bleiben im Archiv erhalten.')) return;
+      kunden = kunden.filter(x=>x.id!==btn.dataset.delkv);
+      kundenVerwaltungOpen.delete(btn.dataset.delkv);
+      saveKunden();
+      renderKundenVerwaltung();
+      renderKundenDatalist();
+    });
+  });
+  box.querySelectorAll('[data-newangebot]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const k = kunden.find(x=>x.id===btn.dataset.newangebot);
+      if(!k) return;
+      $('#kundeName').value = k.name||'';
+      applyKundeAutofill(k);
+      document.querySelector('.tab[data-view="kalk"]').click();
+    });
+  });
+  box.querySelectorAll('[data-kvload]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      loadAngebotInForm(angebote.find(x=>x.id===btn.dataset.kvload));
+    });
+  });
+}
+
+$('#addKundeVerwaltungBtn').addEventListener('click', ()=>{
+  const neu = {id:uid('k'), nummer: nextKundenNummer(), name:'Neuer Kunde', firma:'', email:'', telefon:'', adresse:'', ustId:'', gruppe:'', rabattPct:0, zahlungsbedingungen:'', lieferbedingungen:'', notizen:''};
+  kunden.push(neu);
+  kundenVerwaltungOpen.add(neu.id);
+  saveKunden();
+  saveKundenCounter();
+  renderKundenVerwaltung();
+  renderKundenDatalist();
+});
+
+$('#kundenSuche').addEventListener('input', ()=>{
+  kundenSucheText = $('#kundenSuche').value;
+  renderKundenVerwaltung();
+});
 
 // ---------- Stammdaten: Allgemeine Kosten ----------
 function renderGeneralInputs(){
@@ -475,11 +754,14 @@ function renderGeneralInputs(){
   $('#genExpressPct').value = allgemein.expressPct;
   $('#genStdProTag').value = allgemein.stdProTag;
   $('#genPufferTage').value = allgemein.pufferTage;
+  $('#genVersand').value = allgemein.versandStandard;
+  $('#genInfillEstimate').value = allgemein.infillEstimatePct;
+  $('#genVolumenrate').value = allgemein.volumenrateMm3S;
   $('#genKleinunternehmer').checked = !!allgemein.kleinunternehmer;
   $('#genMwst').value = allgemein.mwst;
   $('#mwstFieldWrap').style.display = allgemein.kleinunternehmer ? 'none' : 'block';
 }
-['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage'].forEach(id=>{
+['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage','genVersand','genInfillEstimate','genVolumenrate'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
     allgemein.strompreis  = parseFloat($('#genStrompreis').value)||0;
     allgemein.arbeit      = parseFloat($('#genArbeit').value)||0;
@@ -489,6 +771,9 @@ function renderGeneralInputs(){
     allgemein.expressPct   = parseFloat($('#genExpressPct').value)||0;
     allgemein.stdProTag    = parseFloat($('#genStdProTag').value)||16;
     allgemein.pufferTage   = parseFloat($('#genPufferTage').value)||0;
+    allgemein.versandStandard = parseFloat($('#genVersand').value)||0;
+    allgemein.infillEstimatePct = parseFloat($('#genInfillEstimate').value)||20;
+    allgemein.volumenrateMm3S = parseFloat($('#genVolumenrate').value)||15;
     saveAllgemein();
     refreshLivePreview();
   });
@@ -650,6 +935,7 @@ $('#vorlageLadenBtn').addEventListener('click', ()=>{
   addPosition({
     name: v.name,
     stueckzahl: 1,
+    einheit: v.einheit || 'Stk.',
     druckzeit: v.druckzeit,
     arbeitszeit: v.arbeitszeit,
     slots: JSON.parse(JSON.stringify(v.slots||[null,null,null,null])),
@@ -668,6 +954,7 @@ function addPosition(prefill){
     id: uid('p'),
     name: '',
     stueckzahl: 1,
+    einheit: 'Stk.',
     druckzeit: 0,
     arbeitszeit: 0,
     druckerId: drucker.length ? drucker[0].id : '',
@@ -707,14 +994,18 @@ function renderPositionen(){
           <button class="icon-btn" data-delpos="${pos.id}" title="Position löschen">✕</button>
         </div>
       </div>
-      <div class="row g3" style="margin-bottom:12px;">
+      <div class="row g4" style="margin-bottom:12px;">
         <div class="field">
           <label>Produktname</label>
           <input data-pos="${pos.id}" data-pfield="name" value="${pos.name||''}" placeholder="z. B. Halterung V2">
         </div>
         <div class="field">
-          <label>Stückzahl</label>
+          <label>Menge</label>
           <input data-pos="${pos.id}" data-pfield="stueckzahl" type="number" min="1" step="1" value="${pos.stueckzahl}">
+        </div>
+        <div class="field">
+          <label>Einheit</label>
+          <input data-pos="${pos.id}" data-pfield="einheit" list="einheitOptions" value="${pos.einheit||'Stk.'}" placeholder="Stk.">
         </div>
         <div class="field">
           <label>Drucker</label>
@@ -788,6 +1079,7 @@ function renderPositionen(){
       if(!name || !name.trim()) return;
       vorlagen.push({
         id: uid('v'), name: name.trim(),
+        einheit: pos.einheit || 'Stk.',
         druckzeit: pos.druckzeit, arbeitszeit: pos.arbeitszeit,
         slots: JSON.parse(JSON.stringify(pos.slots)),
         zubehoerItems: JSON.parse(JSON.stringify(pos.zubehoerItems)),
@@ -1094,6 +1386,183 @@ $('#gcodeFile').addEventListener('change', e=>{
   e.target.value = '';
 });
 
+// ---------- Sofortschätzung aus STL/3MF (ungesliced, ohne Slicing) ----------
+// Massivvolumen eines Dreiecksnetzes über die Divergenz-/Tetraeder-Formel (Vorzeichen je nach Normalenrichtung)
+function meshSignedVolumeMm3(vertices, triangles){
+  let vol = 0;
+  for(const t of triangles){
+    const v1 = vertices[t[0]], v2 = vertices[t[1]], v3 = vertices[t[2]];
+    if(!v1 || !v2 || !v3) continue;
+    vol += (v1[0]*(v2[1]*v3[2]-v3[1]*v2[2])
+          - v1[1]*(v2[0]*v3[2]-v3[0]*v2[2])
+          + v1[2]*(v2[0]*v3[1]-v3[0]*v2[1])) / 6;
+  }
+  return Math.abs(vol);
+}
+
+function parseStlBinary(buffer){
+  const dv = new DataView(buffer);
+  const triCount = dv.getUint32(80, true);
+  const vertices = [], triangles = [];
+  let offset = 84;
+  for(let i=0;i<triCount;i++){
+    offset += 12; // Normalenvektor überspringen
+    const idx = [];
+    for(let k=0;k<3;k++){
+      const x = dv.getFloat32(offset, true); offset+=4;
+      const y = dv.getFloat32(offset, true); offset+=4;
+      const z = dv.getFloat32(offset, true); offset+=4;
+      vertices.push([x,y,z]);
+      idx.push(vertices.length-1);
+    }
+    triangles.push(idx);
+    offset += 2; // Attribut-Byte-Count
+  }
+  return {vertices, triangles};
+}
+
+function parseStlAscii(text){
+  const vertices = [];
+  const vertexRegex = /vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/g;
+  let m;
+  while((m = vertexRegex.exec(text)) !== null){
+    vertices.push([parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])]);
+  }
+  const triangles = [];
+  for(let i=0;i+2<vertices.length;i+=3) triangles.push([i,i+1,i+2]);
+  return {vertices, triangles};
+}
+
+function parseStlVolumeMm3(buffer){
+  const dv = new DataView(buffer);
+  let parsed = null;
+  if(buffer.byteLength >= 84){
+    const triCount = dv.getUint32(80, true);
+    if(84 + triCount*50 === buffer.byteLength) parsed = parseStlBinary(buffer);
+  }
+  if(!parsed) parsed = parseStlAscii(new TextDecoder('utf-8').decode(buffer));
+  if(!parsed.triangles.length) throw new Error('Keine Dreiecke in der STL-Datei gefunden.');
+  return meshSignedVolumeMm3(parsed.vertices, parsed.triangles);
+}
+
+const MODEL_UNIT_TO_MM = {micron:0.001, millimeter:1, centimeter:10, meter:1000, inch:25.4, foot:304.8};
+
+async function parse3mfVolumeMm3(file){
+  const buffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buffer);
+  const modelEntry = Object.keys(zip.files).find(k => /3d\/3dmodel\.model$/i.test(k));
+  if(!modelEntry) throw new Error('Kein 3D-Modell in der Datei gefunden (evtl. keine gültige 3MF-Datei).');
+  const xml = await zip.files[modelEntry].async('text');
+
+  const unitMatch = xml.match(/<model[^>]*\bunit="([^"]+)"/i);
+  const scale = MODEL_UNIT_TO_MM[(unitMatch ? unitMatch[1] : 'millimeter').toLowerCase()] || 1;
+
+  let totalVolumeMm3 = 0;
+  const objectRegex = /<object\b[^>]*>([\s\S]*?)<\/object>/g;
+  let om;
+  while((om = objectRegex.exec(xml)) !== null){
+    const meshMatch = om[1].match(/<mesh>([\s\S]*?)<\/mesh>/);
+    if(!meshMatch) continue;
+    const meshXml = meshMatch[1];
+    const vertices = [];
+    const vertexRegex = /<vertex\s+x="([-\d.eE+]+)"\s+y="([-\d.eE+]+)"\s+z="([-\d.eE+]+)"/g;
+    let vm;
+    while((vm = vertexRegex.exec(meshXml)) !== null){
+      vertices.push([parseFloat(vm[1])*scale, parseFloat(vm[2])*scale, parseFloat(vm[3])*scale]);
+    }
+    const triangles = [];
+    const triRegex = /<triangle\s+v1="(\d+)"\s+v2="(\d+)"\s+v3="(\d+)"/g;
+    let tm;
+    while((tm = triRegex.exec(meshXml)) !== null){
+      triangles.push([parseInt(tm[1]), parseInt(tm[2]), parseInt(tm[3])]);
+    }
+    totalVolumeMm3 += meshSignedVolumeMm3(vertices, triangles);
+  }
+  if(totalVolumeMm3 <= 0) throw new Error('Konnte kein druckbares Volumen aus der Datei berechnen (evtl. schon gesliced – dafür „Gesliste .gcode.3mf importieren“ nutzen).');
+  return totalVolumeMm3;
+}
+
+async function importInstantEstimate(file){
+  const msg = $('#mf3Msg');
+  msg.innerHTML = `<div class="import-msg">Berechne Volumen aus „${file.name}“…</div>`;
+  try{
+    const ext = file.name.split('.').pop().toLowerCase();
+    let volumeMm3;
+    if(ext === 'stl'){
+      volumeMm3 = parseStlVolumeMm3(await file.arrayBuffer());
+    } else if(ext === '3mf'){
+      volumeMm3 = await parse3mfVolumeMm3(file);
+    } else {
+      msg.innerHTML = `<div class="import-msg warn">Nicht unterstütztes Dateiformat. Bitte .stl oder eine ungeslicte .3mf wählen.</div>`;
+      return;
+    }
+    showEstimateForm(file.name, volumeMm3/1000);
+  }catch(e){
+    console.error(e);
+    msg.innerHTML = `<div class="import-msg warn">Datei konnte nicht gelesen werden: ${e.message}</div>`;
+  }
+}
+
+function showEstimateForm(fileName, volumeCm3){
+  const msg = $('#mf3Msg');
+  const infillDefault = allgemein.infillEstimatePct ?? 20;
+  msg.innerHTML = `
+    <div class="import-msg ok">Berechnetes Modellvolumen: ${fmt(volumeCm3)} cm³ (reines Massivvolumen, ohne Infill/Wandstärke berücksichtigt).</div>
+    <div class="panel" style="margin:10px 0 0; padding:14px;">
+      <p class="hint" style="margin-bottom:12px;">⚡ <strong>Sofortschätzung ohne Slicing</strong> – deutlich ungenauer als der 3MF/G-Code-Import mit echten Slicer-Daten (ignoriert Wandstärken, Stützstrukturen, echte Druckgeschwindigkeit). Nur als grobe Vorab-Einschätzung nutzen und vor dem Angebot mit einem echten Slice prüfen.</p>
+      <div class="row g3">
+        <div class="field">
+          <label>Material</label>
+          <select id="estMaterial">
+            ${filamente.length ? filamente.map(f=>`<option value="${f.id}">${f.material} · ${f.farbe||'ohne Farbname'}</option>`).join('') : '<option value="">— erst Filament in Stammdaten anlegen —</option>'}
+          </select>
+        </div>
+        <div class="field">
+          <label>Infill (%)</label>
+          <input id="estInfill" type="number" min="1" max="100" step="1" value="${infillDefault}">
+        </div>
+        <div class="field">
+          <label>Stückzahl</label>
+          <input id="estStueckzahl" type="number" min="1" step="1" value="1">
+        </div>
+      </div>
+      <button class="add-btn" id="estUebernehmenBtn" style="margin-top:12px;" ${filamente.length?'':'disabled'}>+ Als Position übernehmen</button>
+    </div>
+  `;
+  $('#estUebernehmenBtn').addEventListener('click', ()=>{
+    const fil = filamente.find(f=>f.id===$('#estMaterial').value);
+    if(!fil) return;
+    const infillPct = parseFloat($('#estInfill').value)||20;
+    const stueckzahl = parseInt($('#estStueckzahl').value)||1;
+    const density = MATERIAL_DENSITY[fil.material] ?? 1.24;
+    const grams = volumeCm3 * (infillPct/100) * density;
+    const filamentVolumeMm3 = density>0 ? (grams/density) * 1000 : 0;
+    const rate = allgemein.volumenrateMm3S || 15;
+    const druckzeitH = filamentVolumeMm3 / rate / 3600;
+
+    const isEmpty = p => !p.name && !parseFloat(p.druckzeit) && !parseFloat(p.arbeitszeit) && !p.slots.some(s=>s && s.filamentId);
+    if(positionen.length === 1 && isEmpty(positionen[0])) positionen = [];
+    addPosition({
+      name: `${fileName.replace(/\.(stl|3mf)$/i,'')} (Sofortschätzung ⚡ – bitte prüfen)`,
+      stueckzahl,
+      druckzeit: +druckzeitH.toFixed(2),
+      arbeitszeit: 0,
+      slots: [{filamentId: fil.id, gramm: String(Math.round(grams*10)/10)}, null, null, null]
+    });
+    renderPositionen();
+    updateTierHint();
+    refreshLivePreview();
+    $('#mf3Msg').innerHTML = `<div class="import-msg ok">Position aus „${fileName}“ als Sofortschätzung übernommen (${fmt(grams)} g, ${druckzeitH.toFixed(2)} Std.). Bitte vor dem Angebot mit einem echten Slice prüfen.</div>`;
+  });
+}
+
+$('#estimateImportBtn').addEventListener('click', ()=> $('#estimateFile').click());
+$('#estimateFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(file) importInstantEstimate(file);
+});
+
 // ---------- Liefertermin-Schätzung & Express ----------
 function estimateLieferterminInfo(){
   const gesamtStd = positionen.reduce((s,p)=> s + (parseFloat(p.druckzeit)||0), 0);
@@ -1143,8 +1612,11 @@ function computeQuote(){
     adresse: $('#kundeAdresse').value.trim()
   };
   const liefertermin = $('#liefertermin').value;
+  const versandBetrag = parseFloat($('#versand').value)||0;
+  const einleitungstext = $('#einleitungstext').value.trim();
+  const schlusstext = $('#schlusstext').value.trim();
 
-  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, amsRuestStunden=0, amsPositionen=0;
+  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, abschreibungTotal=0, amsRuestStunden=0, amsPositionen=0;
   const posLines = [];
 
   positionen.forEach((pos,idx)=>{
@@ -1189,14 +1661,16 @@ function computeQuote(){
       if(!z) return sum;
       return sum + (parseFloat(it.anzahl)||0) * z.preis;
     },0);
-    const subtotal = material+strom+wartung+arbeit+zub;
+    const abschreibung = druckerAbschreibungProStunde(posDrucker) * druckzeit;
+    const subtotal = material+strom+wartung+arbeit+zub+abschreibung;
 
-    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit; zubehoerTotal += zub;
+    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit; zubehoerTotal += zub; abschreibungTotal += abschreibung;
 
     posLines.push({
       nr: idx+1,
       name: pos.name || 'Ohne Namen',
       stueckzahl,
+      einheit: pos.einheit || 'Stk.',
       subtotal,
       proStueck: subtotal/stueckzahl,
       amsZuschlag: amsZuschlagH > 0,
@@ -1205,8 +1679,10 @@ function computeQuote(){
     });
   });
 
+  // Einheitliche Mengeneinheit über alle Positionen (für Gesamt-/Durchschnittsanzeige) – null, wenn gemischt
+  const einheitGesamt = posLines.length && posLines.every(l=>l.einheit===posLines[0].einheit) ? posLines[0].einheit : null;
   const sumStueckzahl = totalStueckzahl();
-  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal + zubehoerTotal;
+  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal + zubehoerTotal + abschreibungTotal + versandBetrag;
 
   const ausschussBetrag = kostenSumme * ((allgemein.ausschussPct||0)/100);
   const zwischensumme = kostenSumme + ausschussBetrag;
@@ -1231,11 +1707,11 @@ function computeQuote(){
   const gesamt = roundPrice(bruttoGesamt, allgemein.rundung);
   const rundungsDiff = gesamt - bruttoGesamt;
 
-  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal,
+  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal, abschreibungTotal, versandBetrag,
     amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
     zwischensumme, expressOn, expressPct, expressBetrag, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
     rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
-    rundungsDiff, gesamt, sumStueckzahl};
+    rundungsDiff, gesamt, sumStueckzahl, einheitGesamt, einleitungstext, schlusstext};
 }
 
 function buildResultHtml(q){
@@ -1245,7 +1721,7 @@ function buildResultHtml(q){
   if(q.liefertermin) html += `<div style="color:var(--muted); font-size:12.5px; margin-bottom:14px;">Voraussichtlicher Liefertermin: ${new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')}</div>`;
 
   html += `<h3>Positionen</h3>`;
-  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)${l.amsZuschlag?' · AMS':''}${l.amsWarn?' · ⚠ kein AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
+  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} ${l.einheit})${l.amsZuschlag?' · AMS':''}${l.amsWarn?' · ⚠ kein AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/${l.einheit}</span></div>`).join('');
 
   html += `<h3>Kosten gesamt</h3>`;
   html += `<div class="line"><span>Materialkosten</span><span>${fmt(q.materialTotal)} €</span></div>`;
@@ -1255,6 +1731,8 @@ function buildResultHtml(q){
   if(q.amsPositionen>0) arbeitLabel += ` (inkl. AMS-Rüstzuschlag: ${q.amsPositionen} Pos. à ${allgemein.amsRuestMin} Min.)`;
   html += `<div class="line"><span>${arbeitLabel}</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
   if(q.zubehoerTotal>0) html += `<div class="line"><span>Zubehör/Hardware</span><span>${fmt(q.zubehoerTotal)} €</span></div>`;
+  if(q.abschreibungTotal>0) html += `<div class="line"><span>Maschinenabschreibung</span><span>${fmt(q.abschreibungTotal)} €</span></div>`;
+  if(q.versandBetrag>0) html += `<div class="line"><span>Versand & Verpackung</span><span>${fmt(q.versandBetrag)} €</span></div>`;
   html += `<div class="line"><span>Kostensumme</span><span>${fmt(q.kostenSumme)} €</span></div>`;
   if(q.ausschussPct>0) html += `<div class="line"><span>Ausschuss-Puffer (${q.ausschussPct}%)</span><span>${fmt(q.ausschussBetrag)} €</span></div>`;
   html += `<div class="line"><span>Zwischensumme</span><span>${fmt(q.zwischensumme)} €</span></div>`;
@@ -1273,8 +1751,8 @@ function buildResultHtml(q){
   } else {
     html += `<div class="line"><span>zzgl. USt (${q.mwstSatz}%)</span><span>${fmt(q.mwstBetrag)} €</span></div>`;
   }
-  html += `<div class="total"><span>Gesamtpreis (${q.sumStueckzahl} Stk.)</span><span>${fmt(q.gesamt)} €</span></div>`;
-  if(q.sumStueckzahl>0) html += `<div class="line"><span>Ø Preis / Stück</span><span>${fmt(q.gesamt/q.sumStueckzahl)} €</span></div>`;
+  html += `<div class="total"><span>Gesamtpreis${q.einheitGesamt?` (${q.sumStueckzahl} ${q.einheitGesamt})`:''}</span><span>${fmt(q.gesamt)} €</span></div>`;
+  if(q.sumStueckzahl>0 && q.einheitGesamt) html += `<div class="line"><span>Ø Preis / ${q.einheitGesamt}</span><span>${fmt(q.gesamt/q.sumStueckzahl)} €</span></div>`;
   return html;
 }
 
@@ -1317,6 +1795,7 @@ function buildCsvRows(q, meta){
   rows.push(['Datum', (meta && meta.datum) || new Date().toLocaleDateString('de-DE')]);
   if(meta && meta.gueltigBis) rows.push(['Gültig bis', meta.gueltigBis]);
   if(q.liefertermin) rows.push(['Voraussichtlicher Liefertermin', new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')]);
+  if(q.einleitungstext) rows.push(['Einleitungstext', q.einleitungstext]);
   if(q.kunde && q.kunde.name){
     rows.push([]);
     rows.push(['Kunde', q.kunde.name]);
@@ -1326,13 +1805,15 @@ function buildCsvRows(q, meta){
     if(q.kunde.telefon) rows.push(['Telefon', q.kunde.telefon]);
   }
   rows.push([]);
-  rows.push(['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']);
+  rows.push(['Pos.','Produkt','Menge','Einzelpreis (€)','Gesamtpreis (€)']);
   q.posLines.forEach(l=>{
-    rows.push([l.nr, l.name, l.stueckzahl, csvNum(l.proStueck), csvNum(l.subtotal)]);
+    rows.push([l.nr, l.name, `${l.stueckzahl} ${l.einheit}`, csvNum(l.proStueck), csvNum(l.subtotal)]);
   });
   rows.push([]);
   rows.push(['','','','Kostensumme', csvNum(q.kostenSumme)]);
   if(q.zubehoerTotal>0) rows.push(['','','','davon Zubehör/Hardware', csvNum(q.zubehoerTotal)]);
+  if(q.abschreibungTotal>0) rows.push(['','','','davon Maschinenabschreibung', csvNum(q.abschreibungTotal)]);
+  if(q.versandBetrag>0) rows.push(['','','','davon Versand & Verpackung', csvNum(q.versandBetrag)]);
   if(q.ausschussPct>0) rows.push(['','','',`Ausschuss-Puffer (${q.ausschussPct}%)`, csvNum(q.ausschussBetrag)]);
   rows.push(['','','','Zwischensumme', csvNum(q.zwischensumme)]);
   if(q.expressPct>0) rows.push(['','','',`Express-Zuschlag (${q.expressPct}%)`, csvNum(q.expressBetrag)]);
@@ -1347,7 +1828,8 @@ function buildCsvRows(q, meta){
   rows.push(['','','','Netto-Gesamt', csvNum(q.nettoGesamt)]);
   rows.push(['','','','Umsatzsteuer', q.kleinunternehmer ? 'gem. §19 UStG nicht ausgewiesen' : `${q.mwstSatz}% = ${csvNum(q.mwstBetrag)} €`]);
   rows.push(['','','','Gesamtpreis', csvNum(q.gesamt)]);
-  if(q.sumStueckzahl>0) rows.push(['','','','Ø Preis / Stück', csvNum(q.gesamt/q.sumStueckzahl)]);
+  if(q.sumStueckzahl>0 && q.einheitGesamt) rows.push(['','','',`Ø Preis / ${q.einheitGesamt}`, csvNum(q.gesamt/q.sumStueckzahl)]);
+  if(q.schlusstext){ rows.push([]); rows.push(['Schlusstext', q.schlusstext]); }
   return rows;
 }
 
@@ -1372,7 +1854,45 @@ $('#exportCsvBtn').addEventListener('click', ()=>{
 function buildPdfDoc(q, meta){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  let y = 18;
+  let y = 15;
+
+  // Briefkopf: Logo + Absenderdaten aus dem Firmenprofil (Stammdaten)
+  let headBottom = y;
+  if(firma.logoDataUrl){
+    try{
+      const typeMatch = /^data:image\/(\w+);/.exec(firma.logoDataUrl);
+      const imgFormat = typeMatch ? typeMatch[1].toUpperCase() : 'PNG';
+      const maxW = 35, maxH = 20;
+      let w = maxW, h = maxH;
+      if(firma.logoW && firma.logoH){
+        const ratio = firma.logoW / firma.logoH;
+        if(maxW / ratio <= maxH){ w = maxW; h = maxW / ratio; }
+        else { h = maxH; w = maxH * ratio; }
+      }
+      doc.addImage(firma.logoDataUrl, imgFormat, 14, y, w, h);
+      headBottom = Math.max(headBottom, y + h);
+    }catch(e){ /* Logo nicht lesbar - PDF trotzdem ohne Logo erzeugen */ }
+  }
+  if(firma.name || firma.adresse || firma.email || firma.telefon){
+    let fy = y + 4;
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    if(firma.name){ doc.text(firma.name, 196, fy, {align:'right'}); fy += 5; }
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+    [
+      firma.ansprechpartner,
+      firma.adresse,
+      [firma.telefon, firma.email].filter(Boolean).join(' · '),
+      firma.website,
+      firma.ustId ? `USt-ID: ${firma.ustId}` : (firma.steuernummer ? `St.-Nr.: ${firma.steuernummer}` : '')
+    ].filter(Boolean).forEach(line=>{ doc.text(line, 196, fy, {align:'right'}); fy += 4; });
+    doc.setTextColor(0);
+    headBottom = Math.max(headBottom, fy);
+  }
+  if(headBottom > y){
+    y = headBottom + 4;
+    doc.setDrawColor(220); doc.line(14, y, 196, y);
+    y += 8;
+  }
 
   doc.setFont('helvetica','bold'); doc.setFontSize(18);
   doc.text('Preisangebot', 14, y); y += 8;
@@ -1395,10 +1915,17 @@ function buildPdfDoc(q, meta){
     y += 3;
   }
 
+  if(q.einleitungstext){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(0);
+    const introLines = doc.splitTextToSize(q.einleitungstext, 182);
+    doc.text(introLines, 14, y);
+    y += introLines.length * 5 + 5;
+  }
+
   doc.autoTable({
     startY: y,
-    head: [['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']],
-    body: q.posLines.map(l=>[l.nr, l.name, l.stueckzahl, fmt(l.proStueck), fmt(l.subtotal)]),
+    head: [['Pos.','Produkt','Menge','Einzelpreis (€)','Gesamtpreis (€)']],
+    body: q.posLines.map(l=>[l.nr, l.name, `${l.stueckzahl} ${l.einheit}`, fmt(l.proStueck), fmt(l.subtotal)]),
     theme: 'grid',
     headStyles: {fillColor:[242,84,45]},
     styles: {fontSize:9}
@@ -1408,6 +1935,8 @@ function buildPdfDoc(q, meta){
   const summaryRows = [];
   summaryRows.push(['Kostensumme', fmt(q.kostenSumme)+' €']);
   if(q.zubehoerTotal>0) summaryRows.push(['davon Zubehör/Hardware', fmt(q.zubehoerTotal)+' €']);
+  if(q.abschreibungTotal>0) summaryRows.push(['davon Maschinenabschreibung', fmt(q.abschreibungTotal)+' €']);
+  if(q.versandBetrag>0) summaryRows.push(['davon Versand & Verpackung', fmt(q.versandBetrag)+' €']);
   if(q.ausschussPct>0) summaryRows.push([`Ausschuss-Puffer (${q.ausschussPct}%)`, fmt(q.ausschussBetrag)+' €']);
   summaryRows.push(['Zwischensumme', fmt(q.zwischensumme)+' €']);
   if(q.expressPct>0) summaryRows.push([`Express-Zuschlag (${q.expressPct}%)`, fmt(q.expressBetrag)+' €']);
@@ -1422,7 +1951,7 @@ function buildPdfDoc(q, meta){
   summaryRows.push(['Netto-Gesamt', fmt(q.nettoGesamt)+' €']);
   summaryRows.push(['Umsatzsteuer', q.kleinunternehmer ? 'gem. §19 UStG nicht ausgewiesen' : `${q.mwstSatz}% = ${fmt(q.mwstBetrag)} €`]);
   summaryRows.push(['Gesamtpreis', fmt(q.gesamt)+' €']);
-  if(q.sumStueckzahl>0) summaryRows.push(['Ø Preis / Stück', fmt(q.gesamt/q.sumStueckzahl)+' €']);
+  if(q.sumStueckzahl>0 && q.einheitGesamt) summaryRows.push([`Ø Preis / ${q.einheitGesamt}`, fmt(q.gesamt/q.sumStueckzahl)+' €']);
 
   doc.autoTable({
     startY: y,
@@ -1435,10 +1964,21 @@ function buildPdfDoc(q, meta){
     }
   });
 
-  if(q.kleinunternehmer){
-    y = doc.lastAutoTable.finalY + 8;
-    doc.setFontSize(8); doc.setTextColor(120);
-    doc.text('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.', 14, y);
+  y = doc.lastAutoTable.finalY + 8;
+
+  if(q.schlusstext){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(0);
+    const schlussLines = doc.splitTextToSize(q.schlusstext, 182);
+    doc.text(schlussLines, 14, y);
+    y += schlussLines.length * 5 + 5;
+  }
+
+  const footerLines = [];
+  if(firma.iban) footerLines.push(`Zahlung per Überweisung: IBAN ${firma.iban}${firma.bic ? ' · BIC '+firma.bic : ''}${firma.name ? ' · '+firma.name : ''}`);
+  if(q.kleinunternehmer) footerLines.push('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.');
+  if(footerLines.length){
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120);
+    footerLines.forEach(line=>{ doc.text(line, 14, y); y += 4; });
   }
 
   return doc;
@@ -1472,7 +2012,8 @@ $('#mailAngebotBtn').addEventListener('click', ()=>{
   const nummer = $('#angebotsNr').value;
   const subject = `Ihr Angebot${nummer && nummer!=='wird beim Speichern vergeben' ? ' '+nummer : ''}${q.jobName ? ' – '+q.jobName : ''}`;
   const anrede = q.kunde.name ? `Hallo ${q.kunde.name.split(' ')[0]},` : 'Hallo,';
-  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} € (${q.sumStueckzahl} Stk.).\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße`;
+  const mengeSuffix = q.einheitGesamt ? ` (${q.sumStueckzahl} ${q.einheitGesamt})` : '';
+  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} €${mengeSuffix}.\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firma.name ? '\n'+firma.name : ''}`;
   window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 
@@ -1483,12 +2024,63 @@ function nextAngebotsNummer(){
   return `A-${jahr}-${String(angebotsCounter).padStart(3,'0')}`;
 }
 
+// Lädt ein gespeichertes Angebot zum Weiterbearbeiten in die Kalkulation (Archiv + Kunden-Tab)
+function loadAngebotInForm(a){
+  if(!a) return;
+  positionen = JSON.parse(JSON.stringify(a.positionen));
+  positionen.forEach(p=>{
+    if(!p.druckerId || !drucker.some(d=>d.id===p.druckerId)) p.druckerId = drucker[0] ? drucker[0].id : '';
+    if(!p.zubehoerItems) p.zubehoerItems = [];
+  });
+  $('#jobName').value = a.jobName || '';
+  $('#angebotsNr').value = a.nummer;
+  $('#gueltigBis').value = a.gueltigBis || '';
+  $('#liefertermin').value = a.liefertermin || '';
+  $('#margin').value = a.margin;
+  $('#extraDiscount').value = a.extraDiscount;
+  $('#express').checked = !!a.express;
+  $('#expressPct').value = a.expressPct || allgemein.expressPct;
+  $('#versand').value = a.versand || 0;
+  $('#einleitungstext').value = a.einleitungstext || '';
+  $('#schlusstext').value = a.schlusstext || '';
+  const k = a.kunde || {};
+  $('#kundeName').value = k.name || '';
+  $('#kundeFirma').value = k.firma || '';
+  $('#kundeEmail').value = k.email || '';
+  $('#kundeTelefon').value = k.telefon || '';
+  $('#kundeAdresse').value = k.adresse || '';
+  refreshKundeInfoHint();
+  renderPositionen();
+  updateTierHint();
+  refreshLivePreview();
+  document.querySelector('.tab[data-view="kalk"]').click();
+}
+
+// Status eines Angebots inkl. automatischer "Abgelaufen"-Anzeige (offen + gültig-bis überschritten)
+function angebotStatusInfo(a){
+  const STATUS_MAP = {
+    offen: {label:'Offen', cls:'status-offen'},
+    angenommen: {label:'Angenommen', cls:'status-angenommen'},
+    abgelehnt: {label:'Abgelehnt', cls:'status-abgelehnt'}
+  };
+  const value = (a.status && STATUS_MAP[a.status]) ? a.status : 'offen';
+  if(value === 'offen' && a.gueltigBis){
+    const heute = new Date(); heute.setHours(0,0,0,0);
+    if(new Date(a.gueltigBis+'T00:00:00') < heute){
+      return {value, label:'Abgelaufen', cls:'status-abgelaufen'};
+    }
+  }
+  return Object.assign({value}, STATUS_MAP[value]);
+}
+
 function renderArchiv(){
   const box = $('#archivList');
   box.innerHTML = '';
   $('#archivEmpty').style.display = angebote.length ? 'none' : 'block';
 
   [...angebote].reverse().forEach(a=>{
+    const info = angebotStatusInfo(a);
+    const offenLabel = info.value === 'offen' ? info.label : 'Offen';
     const row = document.createElement('div');
     row.className = 'archiv-row';
     row.innerHTML = `
@@ -1497,8 +2089,13 @@ function renderArchiv(){
         <span class="aprice">${fmt(a.ergebnis.gesamt)} €</span>
       </div>
       <div class="aname">${a.jobName || 'Ohne Bezeichnung'}${a.kunde && a.kunde.name ? ' · '+a.kunde.name : ''}</div>
-      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'}${a.liefertermin ? ' · Liefertermin: '+new Date(a.liefertermin+'T00:00:00').toLocaleDateString('de-DE') : ''} · ${a.ergebnis.sumStueckzahl} Stk. · ${a.positionen.length} Position(en)${a.express?' · Express':''}</div>
+      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'}${a.liefertermin ? ' · Liefertermin: '+new Date(a.liefertermin+'T00:00:00').toLocaleDateString('de-DE') : ''} · ${a.ergebnis.sumStueckzahl} ${a.ergebnis.einheitGesamt||'Stk.'} · ${a.positionen.length} Position(en)${a.express?' · Express':''}</div>
       <div class="abtns">
+        <select class="status-select ${info.cls}" data-statussel="${a.id}" title="Angebots-Status">
+          <option value="offen" ${info.value==='offen'?'selected':''}>${offenLabel}</option>
+          <option value="angenommen" ${info.value==='angenommen'?'selected':''}>Angenommen</option>
+          <option value="abgelehnt" ${info.value==='abgelehnt'?'selected':''}>Abgelehnt</option>
+        </select>
         <button class="ghost-btn" data-load="${a.id}">Laden</button>
         <button class="ghost-btn" data-csv="${a.id}">⇩ CSV</button>
         <button class="ghost-btn" data-pdf="${a.id}">⇩ PDF</button>
@@ -1508,34 +2105,17 @@ function renderArchiv(){
     box.appendChild(row);
   });
 
-  box.querySelectorAll('[data-load]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const a = angebote.find(x=>x.id===btn.dataset.load);
-      if(!a) return;
-      positionen = JSON.parse(JSON.stringify(a.positionen));
-      positionen.forEach(p=>{
-        if(!p.druckerId || !drucker.some(d=>d.id===p.druckerId)) p.druckerId = drucker[0] ? drucker[0].id : '';
-        if(!p.zubehoerItems) p.zubehoerItems = [];
-      });
-      $('#jobName').value = a.jobName || '';
-      $('#angebotsNr').value = a.nummer;
-      $('#gueltigBis').value = a.gueltigBis || '';
-      $('#liefertermin').value = a.liefertermin || '';
-      $('#margin').value = a.margin;
-      $('#extraDiscount').value = a.extraDiscount;
-      $('#express').checked = !!a.express;
-      $('#expressPct').value = a.expressPct || allgemein.expressPct;
-      const k = a.kunde || {};
-      $('#kundeName').value = k.name || '';
-      $('#kundeFirma').value = k.firma || '';
-      $('#kundeEmail').value = k.email || '';
-      $('#kundeTelefon').value = k.telefon || '';
-      $('#kundeAdresse').value = k.adresse || '';
-      renderPositionen();
-      updateTierHint();
-      refreshLivePreview();
-      document.querySelector('.tab[data-view="kalk"]').click();
+  box.querySelectorAll('[data-statussel]').forEach(sel=>{
+    sel.addEventListener('change', e=>{
+      const a = angebote.find(x=>x.id===e.target.dataset.statussel);
+      a.status = e.target.value;
+      saveAngebote();
+      renderArchiv();
+      renderKundenVerwaltung();
     });
+  });
+  box.querySelectorAll('[data-load]').forEach(btn=>{
+    btn.addEventListener('click', ()=> loadAngebotInForm(angebote.find(x=>x.id===btn.dataset.load)));
   });
   box.querySelectorAll('[data-csv]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1560,6 +2140,7 @@ function renderArchiv(){
       angebote = angebote.filter(x=>x.id!==btn.dataset.delA);
       saveAngebote();
       renderArchiv();
+      renderKundenVerwaltung();
     });
   });
 }
@@ -1576,6 +2157,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
   const eintrag = {
     id: uid('a'),
     nummer,
+    status: 'offen',
     datum: new Date().toLocaleDateString('de-DE'),
     gueltigBis: $('#gueltigBis').value,
     liefertermin: $('#liefertermin').value,
@@ -1583,6 +2165,9 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
     kunde: q.kunde,
     express: q.expressOn,
     expressPct: q.expressPct,
+    versand: q.versandBetrag,
+    einleitungstext: q.einleitungstext,
+    schlusstext: q.schlusstext,
     positionen: JSON.parse(JSON.stringify(positionen)),
     margin: q.marginPct,
     extraDiscount: q.extraDiscountPct,
@@ -1592,6 +2177,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
   saveAngebotsCounter();
   saveAngebote();
   renderArchiv();
+  renderKundenVerwaltung();
   alert(`Angebot ${nummer} gespeichert (${fmt(q.gesamt)} €). Im Archiv abrufbar.`);
 });
 
@@ -1599,7 +2185,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
 $('#exportBackupBtn').addEventListener('click', ()=>{
   const backup = {
     exportiertAm: new Date().toISOString(),
-    filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, vorlagen
+    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, kundenCounter, vorlagen
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -1618,8 +2204,9 @@ $('#backupFile').addEventListener('change', async e=>{
   try{
     const text = await file.text();
     const data = JSON.parse(text);
-    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Filamente, Drucker, Zubehör, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
+    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
 
+    if(data.firma) firma = Object.assign({}, firma, data.firma);
     if(Array.isArray(data.filamente)) filamente = data.filamente;
     if(data.allgemein) allgemein = Object.assign({}, allgemein, data.allgemein);
     if(Array.isArray(data.mengenrabatt)) mengenrabatt = data.mengenrabatt;
@@ -1627,11 +2214,14 @@ $('#backupFile').addEventListener('change', async e=>{
     if(Array.isArray(data.zubehoer)) zubehoer = data.zubehoer;
     if(Array.isArray(data.drucker) && data.drucker.length) drucker = data.drucker;
     if(Array.isArray(data.kunden)) kunden = data.kunden;
+    if(typeof data.kundenCounter === 'number') kundenCounter = data.kundenCounter;
     if(Array.isArray(data.vorlagen)) vorlagen = data.vorlagen;
+    // Kunden aus älteren Backups ohne Kundennummer nachträglich durchnummerieren
+    kunden.forEach(k=>{ if(!k.nummer) k.nummer = nextKundenNummer(); });
 
-    await Promise.all([saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveVorlagen()]);
-    renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
-    renderDruckerList(); renderZubehoerList(); renderKundenList(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
+    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveKundenCounter(), saveVorlagen()]);
+    renderFirmaInputs(); renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
+    renderDruckerList(); renderZubehoerList(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){
     msg.innerHTML = `<div class="import-msg warn">Backup konnte nicht gelesen werden: ${err.message}</div>`;

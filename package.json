@@ -1,6 +1,6 @@
 {
   "name": "druckkalkulator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "3D-Druck Preiskalkulator - Desktop App",
   "author": "Eddie",
   "main": "main.js",
