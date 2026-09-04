@@ -9,26 +9,27 @@ Keine Installation, kein Backend, kein Build-Schritt – reines HTML/CSS/JavaScr
 - **Stammdaten**
   - Firmenprofil (Absender): Firmenname, Kontakt, Adresse, USt-ID/Steuernummer, IBAN/BIC und Logo – erscheint als Briefkopf auf dem PDF-Angebot, das Logo wird beim Hochladen automatisch verkleinert
   - Beliebig viele Filamente (Material + Farbe + Preis pro kg)
-  - Beliebig viele Drucker-Profile (Name, Leistung in Watt, AMS-fähig) – jede Position wird einem Drucker zugeordnet; nur AMS-fähige Drucker erlauben Multicolor ohne manuellen Filamentwechsel
+  - Beliebig viele Drucker-Profile (Name, Leistung in Watt, AMS-fähig, Anschaffungspreis + erwartete Lebensdauer) – jede Position wird einem Drucker zugeordnet; nur AMS-fähige Drucker erlauben Multicolor ohne manuellen Filamentwechsel; aus Anschaffungspreis/Lebensdauer wird automatisch ein zusätzlicher **Abschreibungssatz (€/Std.)** berechnet, der wie die Wartungskosten in jede Kalkulation einfließt
   - Zubehör/Hardware (z. B. Gewindeeinsätze, Schrauben, Muttern) mit Preis pro Stück – wird als Kostenzeile innerhalb einer Position erfasst, nicht als eigene Position
   - Kundenliste (Name, Firma, Adresse, E-Mail, Telefon) – wird beim Speichern eines Angebots automatisch befüllt
   - Positionsvorlagen (Filamente, Zubehör, Zeiten, Drucker) zum Wiederverwenden häufiger Produkte
-  - Allgemeine Kosten: Strompreis (€/kWh), Wartung/Verschleiß (€/Druckstunde), Arbeitskosten (€/Stunde), Standard-Express-Zuschlag (%), Druckstunden/Tag/Drucker und Puffertage (Basis der Lieferterminschätzung)
+  - Allgemeine Kosten: Strompreis (€/kWh), Wartung/Verschleiß (€/Druckstunde), Arbeitskosten (€/Stunde), Standard-Express-Zuschlag (%), Druckstunden/Tag/Drucker und Puffertage (Basis der Lieferterminschätzung), Standard-Versandpauschale (€) sowie Infill (%) und Volumendurchsatz (mm³/s) als Vorgaben für die Sofortschätzung aus STL/3MF
   - Mengenrabatt-Stufen ("ab X Stück Y % Rabatt")
 - **Kunden-Tab**: eigener Reiter mit allen Kunden alphabetisch sortiert (nur Namen in der Liste, mit Suche); Name anklicken zeigt Anschrift/Kontaktdaten, Kennzahlen (Anzahl Angebote, Gesamtumsatz, angenommene Angebote, letztes Angebot) und alle zurückliegenden Angebote dieses Kunden mit Status-Badge zum direkten Laden
 - **Kalkulation**
   - Beliebig viele Positionen (Produkte) pro Auftrag, je mit bis zu 4 Filamenten, Zubehör, Druckzeit, Arbeitszeit, Stückzahl und zugeordnetem Drucker
   - Position **duplizieren** (⧉) oder **als Vorlage speichern** (💾); Vorlagen lassen sich über „Vorlage wählen…“ als neue Position laden
   - **Kundendaten** je Auftrag (Name mit Autovervollständigung aus der Kundenliste, Firma, Adresse, E-Mail, Telefon)
-  - **Express-Zuschlag** (%, an-/abschaltbar) und **Lieferterminschätzung** (Button „Termin schätzen“, basierend auf Gesamt-Druckzeit, Anzahl Drucker, Druckstunden/Tag und Puffertagen; bei Express halbieren sich die Puffertage)
+  - **Express-Zuschlag** (%, an-/abschaltbar), **Lieferterminschätzung** (Button „Termin schätzen“, basierend auf Gesamt-Druckzeit, Anzahl Drucker, Druckstunden/Tag und Puffertagen; bei Express halbieren sich die Puffertage) und **Versand & Verpackung (€)** als eigene Kostenzeile
   - Automatischer Mengenrabatt anhand der Gesamt-Stückzahl aller Positionen + optionaler manueller Zusatzrabatt
   - Gewinnaufschlag in %
   - Detaillierte Kostenaufschlüsselung je Position und gesamt
-- **Archiv**: gespeicherte Angebote mit **Status** (Offen/Angenommen/Abgelehnt, plus automatisch „Abgelaufen“ sobald das Gültig-bis-Datum verstrichen und noch nichts entschieden ist) direkt umschaltbar
   - **CSV-Export als Preisangebot** (Semikolon-getrennt, deutsches Zahlenformat, direkt in Excel/LibreOffice nutzbar)
   - **PDF-Export als Preisangebot** (formatiertes Dokument mit Kundendaten, Positionstabelle und Kostenaufstellung)
   - **Angebot per E-Mail senden**: lädt das PDF herunter und öffnet den Standard-Mail-Client mit vorausgefülltem Betreff/Text an die Kunden-E-Mail – das PDF muss aus Sicherheitsgründen (Browser können keine Anhänge automatisch setzen) manuell angehängt werden
   - **3MF-Import**: gesliste `.gcode.3mf`-Dateien (Bambu Studio / OrcaSlicer) importieren – Druckzeit und Filamentverbrauch je Farbe werden automatisch als neue Position übernommen
+  - **⚡ Sofortschätzung aus STL/3MF**: grobe Kosteneinschätzung direkt aus einer noch **nicht** geslicten STL- oder 3MF-Datei, ganz ohne Slicing – berechnet das Massivvolumen aus der Geometrie und schätzt Gewicht/Druckzeit über Infill % und Material-Dichte
+- **Archiv**: gespeicherte Angebote mit **Status** (Offen/Angenommen/Abgelehnt, plus automatisch „Abgelaufen“ sobald das Gültig-bis-Datum verstrichen und noch nichts entschieden ist) direkt umschaltbar
 
 ## Nutzung
 
@@ -56,6 +57,15 @@ Alle Stammdaten (Firmenprofil inkl. Logo, Filamente, Drucker, Zubehör, Kunden, 
 - **Reine (noch nicht geslicte) Projekt-3MF funktionieren nicht** – diese enthalten keine Zeit-/Verbrauchsdaten, das Tool zeigt dann einen entsprechenden Hinweis
 - Stückzahl und Arbeitszeit werden nicht aus der 3MF übernommen (nicht enthalten) und müssen nach dem Import manuell ergänzt werden
 - Benötigt eine Internetverbindung beim ersten Laden der Seite (lädt die JSZip-Bibliothek von cdnjs.cloudflare.com nach)
+
+## Sofortschätzung aus STL/3MF (ohne Slicing)
+
+Über „⚡ Sofortschätzung (STL/3MF)“ lässt sich eine **noch nicht geslicte** STL- oder 3MF-Datei direkt einlesen, um vorab grob abzuschätzen, was ein Modell kosten könnte – ganz ohne die Datei erst in einem Slicer zu öffnen:
+
+- Das Tool berechnet das reine Massivvolumen des Modells aus der Dreiecksgeometrie (bei 3MF wird die im Modell hinterlegte Einheit berücksichtigt)
+- Material, Infill (%) und Stückzahl werden danach abgefragt; Gewicht = Volumen × Infill × Material-Dichte, Druckzeit = geschätztes Filamentvolumen ÷ angenommener Volumendurchsatz (beides in den Stammdaten unter „Allgemeine Kosten“ mit Standardwerten hinterlegt)
+- **Deutlich ungenauer** als der 3MF-/G-Code-Import mit echten Slicer-Daten, da Wandstärken, Stützstrukturen und echte Druckgeschwindigkeit ignoriert werden – die erzeugte Position ist entsprechend deutlich als Sofortschätzung markiert und sollte vor einem verbindlichen Angebot durch einen echten Slice geprüft werden
+- Benötigt ebenfalls eine Internetverbindung beim ersten Laden der Seite (3MF-Dateien werden über die JSZip-Bibliothek von cdnjs.cloudflare.com gelesen; STL-Dateien werden komplett ohne externe Bibliothek verarbeitet)
 
 ## PDF-Export & Angebot per E-Mail
 

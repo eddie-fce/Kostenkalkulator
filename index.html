@@ -84,6 +84,8 @@
         <button class="ghost-btn" id="mf3ImportBtn">⇪ Gesliste .gcode.3mf importieren</button>
         <input type="file" id="gcodeFile" accept=".gcode,.gco,.g" style="display:none;">
         <button class="ghost-btn" id="gcodeImportBtn">⇪ G-Code importieren</button>
+        <input type="file" id="estimateFile" accept=".stl,.3mf" style="display:none;">
+        <button class="ghost-btn" id="estimateImportBtn" title="Grobe Schätzung aus einer ungeslicten STL/3MF-Datei, ohne Slicing">⚡ Sofortschätzung (STL/3MF)</button>
         <select id="vorlageSelect" style="max-width:220px; width:auto;">
           <option value="">Vorlage wählen…</option>
         </select>
@@ -98,7 +100,7 @@
     </div>
 
     <div class="panel">
-      <h2>Liefertermin & Express</h2>
+      <h2>Liefertermin, Versand & Express</h2>
       <p class="hint" id="terminHint">Schätzung basiert auf Gesamt-Druckzeit aller Positionen, Anzahl Drucker und den in den Stammdaten hinterlegten Puffertagen.</p>
       <div class="row g3">
         <div class="field">
@@ -115,6 +117,12 @@
             Express-Auftrag, Zuschlag (%)
           </label>
           <input id="expressPct" type="number" min="0" max="100" step="1" value="0" style="margin-top:6px;">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Versand & Verpackung (€)</label>
+          <input id="versand" type="number" min="0" step="0.5" value="0">
         </div>
       </div>
     </div>
@@ -259,7 +267,7 @@
 
     <div class="panel">
       <h2>Drucker</h2>
-      <p class="hint">Jede Position wird einem Drucker zugeordnet. Die Leistung (Watt) bestimmt die Stromkosten der Position; nur AMS-fähige Drucker erlauben mehrere Filamente (Multicolor) je Position ohne manuellen Filamentwechsel.</p>
+      <p class="hint">Jede Position wird einem Drucker zugeordnet. Die Leistung (Watt) bestimmt die Stromkosten der Position; nur AMS-fähige Drucker erlauben mehrere Filamente (Multicolor) je Position ohne manuellen Filamentwechsel. Anschaffungspreis + erwartete Lebensdauer ergeben einen zusätzlichen Abschreibungssatz (€/Std.), der wie die Wartungskosten in jede Kalkulation einfließt.</p>
       <div id="druckerList"></div>
       <div class="empty" id="druckerEmpty" style="display:none;">Noch keine Drucker hinterlegt.</div>
       <button class="add-btn" id="addDruckerBtn">+ Drucker hinzufügen</button>
@@ -333,6 +341,22 @@
         <div class="field">
           <label title="Zusätzliche Pufferzeit für Nachbearbeitung, Versandvorbereitung etc.">Puffertage (Liefertermin)</label>
           <input id="genPufferTage" type="number" min="0" step="1" placeholder="2">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label title="Wird bei neuen Aufträgen ins Feld „Versand & Verpackung“ vorausgefüllt">Standard Versandpauschale (€)</label>
+          <input id="genVersand" type="number" min="0" step="0.5" placeholder="0">
+        </div>
+        <div class="field">
+          <label title="Grobe Sofortschätzung aus STL/3MF ohne Slicing: angenommene Fülldichte">Sofortschätzung: Infill (%)</label>
+          <input id="genInfillEstimate" type="number" min="1" max="100" step="1" placeholder="20">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label title="Grobe Sofortschätzung aus STL/3MF ohne Slicing: angenommener Materialdurchsatz für die Druckzeit">Sofortschätzung: Volumendurchsatz (mm³/s)</label>
+          <input id="genVolumenrate" type="number" min="1" step="1" placeholder="15">
         </div>
       </div>
       <div class="save-msg" id="genSaveMsg">Gespeichert.</div>

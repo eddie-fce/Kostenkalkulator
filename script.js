@@ -28,11 +28,18 @@ const MATERIAL_TO_GROUP = {
 // Sinnvolle Standard-€/h je Gruppe – dies ist der VOLLSTÄNDIGE Wartungssatz (kein Zuschlag mehr), danach frei anpassbar
 const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "PC/PA":0.45, "CF/GF":0.70 };
 
+// Grobe Dichte-Richtwerte (g/cm³) je Material, nur für die Sofortschätzung aus STL/3MF (ohne Slicing) genutzt
+const MATERIAL_DENSITY = {
+  "PLA":1.24, "PETG":1.27, "TPU":1.21, "ABS":1.04, "ASA":1.07, "PC":1.20,
+  "PA (Nylon)":1.14, "PVA":1.23, "PLA-CF":1.30, "PETG-CF":1.30, "PA-CF":1.20,
+  "PET-CF":1.35, "PPA-CF":1.25, "Sonstiges":1.24
+};
+
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
 let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0 };
-let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2 };
+let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, versandStandard:0, infillEstimatePct:20, volumenrateMm3S:15 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
 let zubehoer = [];               // [{id, name, preis}] – Zubehör/Hardware, Preis pro Stück
@@ -83,8 +90,8 @@ async function loadData(){
     // Migration/Erstbefüllung: bisherige globale Druckerleistung als Basis für zwei Standard-Profile übernehmen
     const seedLeistung = allgemein.leistung || 150;
     drucker = [
-      {id: uid('d'), name:'P1S #1', leistung: seedLeistung, amsFaehig:false},
-      {id: uid('d'), name:'P1S #2 (AMS)', leistung: seedLeistung, amsFaehig:true}
+      {id: uid('d'), name:'P1S #1', leistung: seedLeistung, amsFaehig:false, anschaffungspreis:0, lebensdauerStd:0},
+      {id: uid('d'), name:'P1S #2 (AMS)', leistung: seedLeistung, amsFaehig:true, anschaffungspreis:0, lebensdauerStd:0}
     ];
     saveDrucker();
   }
@@ -111,6 +118,7 @@ async function loadData(){
   const d = new Date(); d.setDate(d.getDate()+14);
   $('#gueltigBis').value = d.toISOString().slice(0,10);
   $('#expressPct').value = allgemein.expressPct;
+  $('#versand').value = allgemein.versandStandard;
 
   renderFirmaInputs();
   renderFilamentList();
@@ -344,38 +352,64 @@ $('#addFilamentBtn').addEventListener('click', ()=>{
 });
 
 // ---------- Stammdaten: Drucker ----------
+// Abschreibung: Anschaffungspreis / erwartete Lebensdauer (Std.) = zusätzlicher €/Std.-Kostenfaktor
+function druckerAbschreibungProStunde(d){
+  if(!d || !d.lebensdauerStd) return 0;
+  return (d.anschaffungspreis||0) / d.lebensdauerStd;
+}
+
 function renderDruckerList(){
   const box = $('#druckerList');
   box.innerHTML = '';
   $('#druckerEmpty').style.display = drucker.length ? 'none' : 'block';
 
   drucker.forEach(d=>{
-    const row = document.createElement('div');
-    row.className = 'drucker-row';
-    row.innerHTML = `
-      <div class="field">
-        <label>Name</label>
-        <input data-id="${d.id}" data-field="name" value="${d.name||''}" placeholder="z. B. P1S #1">
+    const card = document.createElement('div');
+    card.className = 'drucker-card';
+    const abschreibung = druckerAbschreibungProStunde(d);
+    card.innerHTML = `
+      <div class="drow-top">
+        <div class="row g3">
+          <div class="field">
+            <label>Name</label>
+            <input data-id="${d.id}" data-field="name" value="${d.name||''}" placeholder="z. B. P1S #1">
+          </div>
+          <div class="field">
+            <label>Leistung (W)</label>
+            <input data-id="${d.id}" data-field="leistung" type="number" min="0" step="1" value="${d.leistung||0}">
+          </div>
+          <label class="chk-field">
+            <input type="checkbox" data-id="${d.id}" data-field="amsFaehig" ${d.amsFaehig?'checked':''}>
+            AMS-fähig
+          </label>
+        </div>
+        <button class="icon-btn" data-del="${d.id}" title="Drucker löschen">✕</button>
       </div>
-      <div class="field">
-        <label>Leistung (W)</label>
-        <input data-id="${d.id}" data-field="leistung" type="number" min="0" step="1" value="${d.leistung||0}">
+      <div class="row g3">
+        <div class="field">
+          <label>Anschaffungspreis (€)</label>
+          <input data-id="${d.id}" data-field="anschaffungspreis" type="number" min="0" step="10" value="${d.anschaffungspreis||0}">
+        </div>
+        <div class="field">
+          <label>Erwartete Lebensdauer (Std.)</label>
+          <input data-id="${d.id}" data-field="lebensdauerStd" type="number" min="0" step="100" value="${d.lebensdauerStd||0}">
+        </div>
+        <div class="field">
+          <label>Abschreibung</label>
+          <span class="tier-tag">€${fmt(abschreibung)} / Std.</span>
+        </div>
       </div>
-      <label class="chk-field">
-        <input type="checkbox" data-id="${d.id}" data-field="amsFaehig" ${d.amsFaehig?'checked':''}>
-        AMS-fähig
-      </label>
-      <button class="icon-btn" data-del="${d.id}" title="Drucker löschen">✕</button>
     `;
-    box.appendChild(row);
+    box.appendChild(card);
   });
 
   box.querySelectorAll('[data-field]').forEach(el=>{
     el.addEventListener('input', e=>{
       const d = drucker.find(x=>x.id===e.target.dataset.id);
       const field = e.target.dataset.field;
-      d[field] = field==='leistung' ? (parseFloat(e.target.value)||0) : (field==='amsFaehig' ? e.target.checked : e.target.value);
+      d[field] = field==='amsFaehig' ? e.target.checked : (field==='name' ? e.target.value : (parseFloat(e.target.value)||0));
       saveDrucker();
+      if(field==='anschaffungspreis' || field==='lebensdauerStd') renderDruckerList();
       renderPositionen();
       refreshLivePreview();
     });
@@ -393,7 +427,7 @@ function renderDruckerList(){
 }
 
 $('#addDruckerBtn').addEventListener('click', ()=>{
-  drucker.push({id:uid('d'), name:`Drucker ${drucker.length+1}`, leistung:150, amsFaehig:false});
+  drucker.push({id:uid('d'), name:`Drucker ${drucker.length+1}`, leistung:150, amsFaehig:false, anschaffungspreis:0, lebensdauerStd:0});
   saveDrucker();
   renderDruckerList();
   renderPositionen();
@@ -642,11 +676,14 @@ function renderGeneralInputs(){
   $('#genExpressPct').value = allgemein.expressPct;
   $('#genStdProTag').value = allgemein.stdProTag;
   $('#genPufferTage').value = allgemein.pufferTage;
+  $('#genVersand').value = allgemein.versandStandard;
+  $('#genInfillEstimate').value = allgemein.infillEstimatePct;
+  $('#genVolumenrate').value = allgemein.volumenrateMm3S;
   $('#genKleinunternehmer').checked = !!allgemein.kleinunternehmer;
   $('#genMwst').value = allgemein.mwst;
   $('#mwstFieldWrap').style.display = allgemein.kleinunternehmer ? 'none' : 'block';
 }
-['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage'].forEach(id=>{
+['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage','genVersand','genInfillEstimate','genVolumenrate'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
     allgemein.strompreis  = parseFloat($('#genStrompreis').value)||0;
     allgemein.arbeit      = parseFloat($('#genArbeit').value)||0;
@@ -656,6 +693,9 @@ function renderGeneralInputs(){
     allgemein.expressPct   = parseFloat($('#genExpressPct').value)||0;
     allgemein.stdProTag    = parseFloat($('#genStdProTag').value)||16;
     allgemein.pufferTage   = parseFloat($('#genPufferTage').value)||0;
+    allgemein.versandStandard = parseFloat($('#genVersand').value)||0;
+    allgemein.infillEstimatePct = parseFloat($('#genInfillEstimate').value)||20;
+    allgemein.volumenrateMm3S = parseFloat($('#genVolumenrate').value)||15;
     saveAllgemein();
     refreshLivePreview();
   });
@@ -1261,6 +1301,183 @@ $('#gcodeFile').addEventListener('change', e=>{
   e.target.value = '';
 });
 
+// ---------- Sofortschätzung aus STL/3MF (ungesliced, ohne Slicing) ----------
+// Massivvolumen eines Dreiecksnetzes über die Divergenz-/Tetraeder-Formel (Vorzeichen je nach Normalenrichtung)
+function meshSignedVolumeMm3(vertices, triangles){
+  let vol = 0;
+  for(const t of triangles){
+    const v1 = vertices[t[0]], v2 = vertices[t[1]], v3 = vertices[t[2]];
+    if(!v1 || !v2 || !v3) continue;
+    vol += (v1[0]*(v2[1]*v3[2]-v3[1]*v2[2])
+          - v1[1]*(v2[0]*v3[2]-v3[0]*v2[2])
+          + v1[2]*(v2[0]*v3[1]-v3[0]*v2[1])) / 6;
+  }
+  return Math.abs(vol);
+}
+
+function parseStlBinary(buffer){
+  const dv = new DataView(buffer);
+  const triCount = dv.getUint32(80, true);
+  const vertices = [], triangles = [];
+  let offset = 84;
+  for(let i=0;i<triCount;i++){
+    offset += 12; // Normalenvektor überspringen
+    const idx = [];
+    for(let k=0;k<3;k++){
+      const x = dv.getFloat32(offset, true); offset+=4;
+      const y = dv.getFloat32(offset, true); offset+=4;
+      const z = dv.getFloat32(offset, true); offset+=4;
+      vertices.push([x,y,z]);
+      idx.push(vertices.length-1);
+    }
+    triangles.push(idx);
+    offset += 2; // Attribut-Byte-Count
+  }
+  return {vertices, triangles};
+}
+
+function parseStlAscii(text){
+  const vertices = [];
+  const vertexRegex = /vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/g;
+  let m;
+  while((m = vertexRegex.exec(text)) !== null){
+    vertices.push([parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])]);
+  }
+  const triangles = [];
+  for(let i=0;i+2<vertices.length;i+=3) triangles.push([i,i+1,i+2]);
+  return {vertices, triangles};
+}
+
+function parseStlVolumeMm3(buffer){
+  const dv = new DataView(buffer);
+  let parsed = null;
+  if(buffer.byteLength >= 84){
+    const triCount = dv.getUint32(80, true);
+    if(84 + triCount*50 === buffer.byteLength) parsed = parseStlBinary(buffer);
+  }
+  if(!parsed) parsed = parseStlAscii(new TextDecoder('utf-8').decode(buffer));
+  if(!parsed.triangles.length) throw new Error('Keine Dreiecke in der STL-Datei gefunden.');
+  return meshSignedVolumeMm3(parsed.vertices, parsed.triangles);
+}
+
+const MODEL_UNIT_TO_MM = {micron:0.001, millimeter:1, centimeter:10, meter:1000, inch:25.4, foot:304.8};
+
+async function parse3mfVolumeMm3(file){
+  const buffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buffer);
+  const modelEntry = Object.keys(zip.files).find(k => /3d\/3dmodel\.model$/i.test(k));
+  if(!modelEntry) throw new Error('Kein 3D-Modell in der Datei gefunden (evtl. keine gültige 3MF-Datei).');
+  const xml = await zip.files[modelEntry].async('text');
+
+  const unitMatch = xml.match(/<model[^>]*\bunit="([^"]+)"/i);
+  const scale = MODEL_UNIT_TO_MM[(unitMatch ? unitMatch[1] : 'millimeter').toLowerCase()] || 1;
+
+  let totalVolumeMm3 = 0;
+  const objectRegex = /<object\b[^>]*>([\s\S]*?)<\/object>/g;
+  let om;
+  while((om = objectRegex.exec(xml)) !== null){
+    const meshMatch = om[1].match(/<mesh>([\s\S]*?)<\/mesh>/);
+    if(!meshMatch) continue;
+    const meshXml = meshMatch[1];
+    const vertices = [];
+    const vertexRegex = /<vertex\s+x="([-\d.eE+]+)"\s+y="([-\d.eE+]+)"\s+z="([-\d.eE+]+)"/g;
+    let vm;
+    while((vm = vertexRegex.exec(meshXml)) !== null){
+      vertices.push([parseFloat(vm[1])*scale, parseFloat(vm[2])*scale, parseFloat(vm[3])*scale]);
+    }
+    const triangles = [];
+    const triRegex = /<triangle\s+v1="(\d+)"\s+v2="(\d+)"\s+v3="(\d+)"/g;
+    let tm;
+    while((tm = triRegex.exec(meshXml)) !== null){
+      triangles.push([parseInt(tm[1]), parseInt(tm[2]), parseInt(tm[3])]);
+    }
+    totalVolumeMm3 += meshSignedVolumeMm3(vertices, triangles);
+  }
+  if(totalVolumeMm3 <= 0) throw new Error('Konnte kein druckbares Volumen aus der Datei berechnen (evtl. schon gesliced – dafür „Gesliste .gcode.3mf importieren“ nutzen).');
+  return totalVolumeMm3;
+}
+
+async function importInstantEstimate(file){
+  const msg = $('#mf3Msg');
+  msg.innerHTML = `<div class="import-msg">Berechne Volumen aus „${file.name}“…</div>`;
+  try{
+    const ext = file.name.split('.').pop().toLowerCase();
+    let volumeMm3;
+    if(ext === 'stl'){
+      volumeMm3 = parseStlVolumeMm3(await file.arrayBuffer());
+    } else if(ext === '3mf'){
+      volumeMm3 = await parse3mfVolumeMm3(file);
+    } else {
+      msg.innerHTML = `<div class="import-msg warn">Nicht unterstütztes Dateiformat. Bitte .stl oder eine ungeslicte .3mf wählen.</div>`;
+      return;
+    }
+    showEstimateForm(file.name, volumeMm3/1000);
+  }catch(e){
+    console.error(e);
+    msg.innerHTML = `<div class="import-msg warn">Datei konnte nicht gelesen werden: ${e.message}</div>`;
+  }
+}
+
+function showEstimateForm(fileName, volumeCm3){
+  const msg = $('#mf3Msg');
+  const infillDefault = allgemein.infillEstimatePct ?? 20;
+  msg.innerHTML = `
+    <div class="import-msg ok">Berechnetes Modellvolumen: ${fmt(volumeCm3)} cm³ (reines Massivvolumen, ohne Infill/Wandstärke berücksichtigt).</div>
+    <div class="panel" style="margin:10px 0 0; padding:14px;">
+      <p class="hint" style="margin-bottom:12px;">⚡ <strong>Sofortschätzung ohne Slicing</strong> – deutlich ungenauer als der 3MF/G-Code-Import mit echten Slicer-Daten (ignoriert Wandstärken, Stützstrukturen, echte Druckgeschwindigkeit). Nur als grobe Vorab-Einschätzung nutzen und vor dem Angebot mit einem echten Slice prüfen.</p>
+      <div class="row g3">
+        <div class="field">
+          <label>Material</label>
+          <select id="estMaterial">
+            ${filamente.length ? filamente.map(f=>`<option value="${f.id}">${f.material} · ${f.farbe||'ohne Farbname'}</option>`).join('') : '<option value="">— erst Filament in Stammdaten anlegen —</option>'}
+          </select>
+        </div>
+        <div class="field">
+          <label>Infill (%)</label>
+          <input id="estInfill" type="number" min="1" max="100" step="1" value="${infillDefault}">
+        </div>
+        <div class="field">
+          <label>Stückzahl</label>
+          <input id="estStueckzahl" type="number" min="1" step="1" value="1">
+        </div>
+      </div>
+      <button class="add-btn" id="estUebernehmenBtn" style="margin-top:12px;" ${filamente.length?'':'disabled'}>+ Als Position übernehmen</button>
+    </div>
+  `;
+  $('#estUebernehmenBtn').addEventListener('click', ()=>{
+    const fil = filamente.find(f=>f.id===$('#estMaterial').value);
+    if(!fil) return;
+    const infillPct = parseFloat($('#estInfill').value)||20;
+    const stueckzahl = parseInt($('#estStueckzahl').value)||1;
+    const density = MATERIAL_DENSITY[fil.material] ?? 1.24;
+    const grams = volumeCm3 * (infillPct/100) * density;
+    const filamentVolumeMm3 = density>0 ? (grams/density) * 1000 : 0;
+    const rate = allgemein.volumenrateMm3S || 15;
+    const druckzeitH = filamentVolumeMm3 / rate / 3600;
+
+    const isEmpty = p => !p.name && !parseFloat(p.druckzeit) && !parseFloat(p.arbeitszeit) && !p.slots.some(s=>s && s.filamentId);
+    if(positionen.length === 1 && isEmpty(positionen[0])) positionen = [];
+    addPosition({
+      name: `${fileName.replace(/\.(stl|3mf)$/i,'')} (Sofortschätzung ⚡ – bitte prüfen)`,
+      stueckzahl,
+      druckzeit: +druckzeitH.toFixed(2),
+      arbeitszeit: 0,
+      slots: [{filamentId: fil.id, gramm: String(Math.round(grams*10)/10)}, null, null, null]
+    });
+    renderPositionen();
+    updateTierHint();
+    refreshLivePreview();
+    $('#mf3Msg').innerHTML = `<div class="import-msg ok">Position aus „${fileName}“ als Sofortschätzung übernommen (${fmt(grams)} g, ${druckzeitH.toFixed(2)} Std.). Bitte vor dem Angebot mit einem echten Slice prüfen.</div>`;
+  });
+}
+
+$('#estimateImportBtn').addEventListener('click', ()=> $('#estimateFile').click());
+$('#estimateFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(file) importInstantEstimate(file);
+});
+
 // ---------- Liefertermin-Schätzung & Express ----------
 function estimateLieferterminInfo(){
   const gesamtStd = positionen.reduce((s,p)=> s + (parseFloat(p.druckzeit)||0), 0);
@@ -1310,8 +1527,9 @@ function computeQuote(){
     adresse: $('#kundeAdresse').value.trim()
   };
   const liefertermin = $('#liefertermin').value;
+  const versandBetrag = parseFloat($('#versand').value)||0;
 
-  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, amsRuestStunden=0, amsPositionen=0;
+  let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, abschreibungTotal=0, amsRuestStunden=0, amsPositionen=0;
   const posLines = [];
 
   positionen.forEach((pos,idx)=>{
@@ -1356,9 +1574,10 @@ function computeQuote(){
       if(!z) return sum;
       return sum + (parseFloat(it.anzahl)||0) * z.preis;
     },0);
-    const subtotal = material+strom+wartung+arbeit+zub;
+    const abschreibung = druckerAbschreibungProStunde(posDrucker) * druckzeit;
+    const subtotal = material+strom+wartung+arbeit+zub+abschreibung;
 
-    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit; zubehoerTotal += zub;
+    materialTotal += material; stromTotal += strom; wartungTotal += wartung; arbeitTotal += arbeit; zubehoerTotal += zub; abschreibungTotal += abschreibung;
 
     posLines.push({
       nr: idx+1,
@@ -1373,7 +1592,7 @@ function computeQuote(){
   });
 
   const sumStueckzahl = totalStueckzahl();
-  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal + zubehoerTotal;
+  const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal + zubehoerTotal + abschreibungTotal + versandBetrag;
 
   const ausschussBetrag = kostenSumme * ((allgemein.ausschussPct||0)/100);
   const zwischensumme = kostenSumme + ausschussBetrag;
@@ -1398,7 +1617,7 @@ function computeQuote(){
   const gesamt = roundPrice(bruttoGesamt, allgemein.rundung);
   const rundungsDiff = gesamt - bruttoGesamt;
 
-  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal,
+  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal, abschreibungTotal, versandBetrag,
     amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
     zwischensumme, expressOn, expressPct, expressBetrag, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
     rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
@@ -1422,6 +1641,8 @@ function buildResultHtml(q){
   if(q.amsPositionen>0) arbeitLabel += ` (inkl. AMS-Rüstzuschlag: ${q.amsPositionen} Pos. à ${allgemein.amsRuestMin} Min.)`;
   html += `<div class="line"><span>${arbeitLabel}</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
   if(q.zubehoerTotal>0) html += `<div class="line"><span>Zubehör/Hardware</span><span>${fmt(q.zubehoerTotal)} €</span></div>`;
+  if(q.abschreibungTotal>0) html += `<div class="line"><span>Maschinenabschreibung</span><span>${fmt(q.abschreibungTotal)} €</span></div>`;
+  if(q.versandBetrag>0) html += `<div class="line"><span>Versand & Verpackung</span><span>${fmt(q.versandBetrag)} €</span></div>`;
   html += `<div class="line"><span>Kostensumme</span><span>${fmt(q.kostenSumme)} €</span></div>`;
   if(q.ausschussPct>0) html += `<div class="line"><span>Ausschuss-Puffer (${q.ausschussPct}%)</span><span>${fmt(q.ausschussBetrag)} €</span></div>`;
   html += `<div class="line"><span>Zwischensumme</span><span>${fmt(q.zwischensumme)} €</span></div>`;
@@ -1500,6 +1721,8 @@ function buildCsvRows(q, meta){
   rows.push([]);
   rows.push(['','','','Kostensumme', csvNum(q.kostenSumme)]);
   if(q.zubehoerTotal>0) rows.push(['','','','davon Zubehör/Hardware', csvNum(q.zubehoerTotal)]);
+  if(q.abschreibungTotal>0) rows.push(['','','','davon Maschinenabschreibung', csvNum(q.abschreibungTotal)]);
+  if(q.versandBetrag>0) rows.push(['','','','davon Versand & Verpackung', csvNum(q.versandBetrag)]);
   if(q.ausschussPct>0) rows.push(['','','',`Ausschuss-Puffer (${q.ausschussPct}%)`, csvNum(q.ausschussBetrag)]);
   rows.push(['','','','Zwischensumme', csvNum(q.zwischensumme)]);
   if(q.expressPct>0) rows.push(['','','',`Express-Zuschlag (${q.expressPct}%)`, csvNum(q.expressBetrag)]);
@@ -1613,6 +1836,8 @@ function buildPdfDoc(q, meta){
   const summaryRows = [];
   summaryRows.push(['Kostensumme', fmt(q.kostenSumme)+' €']);
   if(q.zubehoerTotal>0) summaryRows.push(['davon Zubehör/Hardware', fmt(q.zubehoerTotal)+' €']);
+  if(q.abschreibungTotal>0) summaryRows.push(['davon Maschinenabschreibung', fmt(q.abschreibungTotal)+' €']);
+  if(q.versandBetrag>0) summaryRows.push(['davon Versand & Verpackung', fmt(q.versandBetrag)+' €']);
   if(q.ausschussPct>0) summaryRows.push([`Ausschuss-Puffer (${q.ausschussPct}%)`, fmt(q.ausschussBetrag)+' €']);
   summaryRows.push(['Zwischensumme', fmt(q.zwischensumme)+' €']);
   if(q.expressPct>0) summaryRows.push([`Express-Zuschlag (${q.expressPct}%)`, fmt(q.expressBetrag)+' €']);
@@ -1707,6 +1932,7 @@ function loadAngebotInForm(a){
   $('#extraDiscount').value = a.extraDiscount;
   $('#express').checked = !!a.express;
   $('#expressPct').value = a.expressPct || allgemein.expressPct;
+  $('#versand').value = a.versand || 0;
   const k = a.kunde || {};
   $('#kundeName').value = k.name || '';
   $('#kundeFirma').value = k.firma || '';
@@ -1828,6 +2054,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
     kunde: q.kunde,
     express: q.expressOn,
     expressPct: q.expressPct,
+    versand: q.versandBetrag,
     positionen: JSON.parse(JSON.stringify(positionen)),
     margin: q.marginPct,
     extraDiscount: q.extraDiscountPct,

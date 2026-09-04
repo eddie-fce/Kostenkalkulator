@@ -85,10 +85,11 @@ input::placeholder{color:#5c5f6a;}
 .zub-item .icon-btn{width:34px;height:34px;flex-shrink:0;}
 
 /* Drucker-Stammdaten */
-.drucker-row{display:grid;grid-template-columns:1.3fr 0.8fr 0.9fr 34px;gap:10px;align-items:end;padding:10px 0;border-bottom:1px solid var(--line);}
-.drucker-row:last-child{border-bottom:none;}
-.drucker-row .chk-field{display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--text);cursor:pointer;padding-bottom:9px;}
-.drucker-row .chk-field input{width:auto;}
+.drucker-card{border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:10px;background:var(--panel-2);}
+.drucker-card .drow-top{display:flex;justify-content:space-between;align-items:end;gap:10px;margin-bottom:10px;}
+.drucker-card .drow-top .row{flex:1;}
+.drucker-card .chk-field{display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--text);cursor:pointer;padding-bottom:9px;white-space:nowrap;}
+.drucker-card .chk-field input{width:auto;}
 
 /* Kundenverwaltung */
 .kv-row{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;background:var(--panel-2);overflow:hidden;}
