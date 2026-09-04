@@ -44,6 +44,16 @@
           <input id="gueltigBis" type="date">
         </div>
       </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Einleitungstext (optional, erscheint im PDF vor der Positionstabelle)</label>
+          <textarea id="einleitungstext" rows="2"></textarea>
+        </div>
+        <div class="field">
+          <label>Schlusstext (optional, erscheint im PDF nach der Kostenaufstellung)</label>
+          <textarea id="schlusstext" rows="2"></textarea>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -74,6 +84,7 @@
           <input id="kundeTelefon">
         </div>
       </div>
+      <div class="hint" id="kundeInfoHint" style="margin:10px 0 0;"></div>
     </div>
 
     <div class="panel">
@@ -92,6 +103,16 @@
         <button class="ghost-btn" id="vorlageLadenBtn">+ Als Position laden</button>
       </div>
       <div id="mf3Msg"></div>
+      <datalist id="einheitOptions">
+        <option value="Stk.">
+        <option value="Std.">
+        <option value="Pauschale">
+        <option value="Satz">
+        <option value="m">
+        <option value="m²">
+        <option value="kg">
+        <option value="g">
+      </datalist>
       <div id="positionList"></div>
       <div class="btn-row">
         <button class="add-btn" id="addPositionBtn">+ Position hinzufügen</button>
@@ -252,6 +273,16 @@
             <img id="firmaLogoPreview" style="max-height:48px; max-width:140px; border-radius:6px; background:#fff; padding:4px;">
             <button class="icon-btn" id="firmaLogoRemoveBtn" title="Logo entfernen" type="button">✕</button>
           </div>
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:14px;">
+        <div class="field">
+          <label title="Erscheint standardmäßig als Einleitungstext auf dem PDF-Angebot, je Angebot überschreibbar">Standard-Einleitungstext</label>
+          <textarea id="firmaStandardEinleitung" rows="2" placeholder="Vielen Dank für Ihre Anfrage. Gerne unterbreiten wir Ihnen folgendes Angebot:"></textarea>
+        </div>
+        <div class="field">
+          <label title="Erscheint standardmäßig als Schlusstext auf dem PDF-Angebot, je Angebot überschreibbar">Standard-Schlusstext</label>
+          <textarea id="firmaStandardSchluss" rows="2" placeholder="Wir freuen uns auf Ihre Auftragserteilung."></textarea>
         </div>
       </div>
       <div class="save-msg" id="firmaSaveMsg">Gespeichert.</div>

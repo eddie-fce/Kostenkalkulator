@@ -38,15 +38,16 @@ const MATERIAL_DENSITY = {
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0 };
+let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
 let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, versandStandard:0, infillEstimatePct:20, volumenrateMm3S:15 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
 let zubehoer = [];               // [{id, name, preis}] – Zubehör/Hardware, Preis pro Stück
 let drucker = [];                // [{id, name, leistung, amsFaehig}]
-let kunden = [];                 // [{id, name, firma, adresse, email, telefon}]
+let kunden = [];                 // [{id, nummer, name, firma, adresse, email, telefon, ustId, gruppe, rabattPct, zahlungsbedingungen, lieferbedingungen, notizen}]
+let kundenCounter = 0;
 let vorlagen = [];                // [{id, name, druckzeit, arbeitszeit, slots, zubehoerItems, druckerId}]
-let positionen = [];             // [{id, name, stueckzahl, druckzeit, arbeitszeit, druckerId, zubehoerItems, slots:[{filamentId,gramm}x4]}]
+let positionen = [];             // [{id, name, stueckzahl, einheit, druckzeit, arbeitszeit, druckerId, zubehoerItems, slots:[{filamentId,gramm}x4]}]
 let angebote = [];               // [{id, nummer, datum, gueltigBis, liefertermin, jobName, kunde, express, expressPct, positionen, margin, extraDiscount, ergebnis}]
 let angebotsCounter = 0;
 
@@ -100,6 +101,14 @@ async function loadData(){
     kunden = k ? JSON.parse(k.value) : [];
   }catch(e){ kunden = []; }
   try{
+    const kc = await storage.get('kundenCounter', false);
+    kundenCounter = kc ? parseInt(kc.value)||0 : 0;
+  }catch(e){ kundenCounter = 0; }
+  // Migration: Kunden aus älteren Versionen ohne Kundennummer nachträglich durchnummerieren
+  let kundenNummerMigriert = false;
+  kunden.forEach(k=>{ if(!k.nummer){ k.nummer = nextKundenNummer(); kundenNummerMigriert = true; } });
+  if(kundenNummerMigriert){ saveKunden(); saveKundenCounter(); }
+  try{
     const v = await storage.get('vorlagen', false);
     vorlagen = v ? JSON.parse(v.value) : [];
   }catch(e){ vorlagen = []; }
@@ -119,6 +128,8 @@ async function loadData(){
   $('#gueltigBis').value = d.toISOString().slice(0,10);
   $('#expressPct').value = allgemein.expressPct;
   $('#versand').value = allgemein.versandStandard;
+  $('#einleitungstext').value = firma.standardEinleitung||'';
+  $('#schlusstext').value = firma.standardSchluss||'';
 
   renderFirmaInputs();
   renderFilamentList();
@@ -172,6 +183,10 @@ async function saveDrucker(){
 }
 async function saveKunden(){
   try{ await storage.set('kunden', JSON.stringify(kunden), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveKundenCounter(){
+  try{ await storage.set('kundenCounter', String(kundenCounter), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveVorlagen(){
@@ -229,6 +244,8 @@ function renderFirmaInputs(){
   $('#firmaSteuernummer').value = firma.steuernummer||'';
   $('#firmaIban').value = firma.iban||'';
   $('#firmaBic').value = firma.bic||'';
+  $('#firmaStandardEinleitung').value = firma.standardEinleitung||'';
+  $('#firmaStandardSchluss').value = firma.standardSchluss||'';
   if(firma.logoDataUrl){
     $('#firmaLogoPreview').src = firma.logoDataUrl;
     $('#firmaLogoPreviewWrap').style.display = 'block';
@@ -236,7 +253,7 @@ function renderFirmaInputs(){
     $('#firmaLogoPreviewWrap').style.display = 'none';
   }
 }
-['firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic'].forEach(id=>{
+['firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic','firmaStandardEinleitung','firmaStandardSchluss'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
     firma.name = $('#firmaName').value.trim();
     firma.ansprechpartner = $('#firmaAnsprechpartner').value.trim();
@@ -248,6 +265,8 @@ function renderFirmaInputs(){
     firma.steuernummer = $('#firmaSteuernummer').value.trim();
     firma.iban = $('#firmaIban').value.trim();
     firma.bic = $('#firmaBic').value.trim();
+    firma.standardEinleitung = $('#firmaStandardEinleitung').value;
+    firma.standardSchluss = $('#firmaStandardSchluss').value;
     saveFirma();
   });
 });
@@ -486,20 +505,48 @@ $('#addZubehoerBtn').addEventListener('click', ()=>{
 let kundenVerwaltungOpen = new Set(); // IDs der aufgeklappten Kunden (nur zur Laufzeit)
 let kundenSucheText = '';
 
+// Kundennummer wird automatisch vergeben (wie die Angebotsnummer) – nie manuell eingetragen
+function nextKundenNummer(){
+  kundenCounter++;
+  return `K-${String(kundenCounter).padStart(4,'0')}`;
+}
+
+function findKundeByName(name){
+  name = (name||'').trim().toLowerCase();
+  return name ? kunden.find(x=> (x.name||'').trim().toLowerCase() === name) : null;
+}
+
 function renderKundenDatalist(){
   $('#kundenDatalist').innerHTML = kunden.map(k=>`<option value="${(k.name||'').replace(/"/g,'&quot;')}">`).join('');
 }
 
+// Kurzinfo (Kundennummer, Gruppe, Rabatt, Zahlungs-/Lieferbedingungen) unter dem Namensfeld aktuell halten
+function refreshKundeInfoHint(){
+  const el = $('#kundeInfoHint');
+  if(!el) return;
+  const k = findKundeByName($('#kundeName').value);
+  if(!k){ el.textContent = ''; return; }
+  const parts = [`Kundennummer: ${k.nummer||'–'}`];
+  if(k.gruppe) parts.push(`Gruppe: ${k.gruppe}`);
+  if(k.rabattPct) parts.push(`Standard-Rabatt: ${k.rabattPct}%`);
+  if(k.zahlungsbedingungen) parts.push(`Zahlung: ${k.zahlungsbedingungen}`);
+  if(k.lieferbedingungen) parts.push(`Lieferung: ${k.lieferbedingungen}`);
+  el.textContent = parts.join(' · ');
+}
+
+// Übernimmt Kontaktdaten + Standard-Rabatt eines bekannten Kunden ins Auftragsformular (Name wird separat gesetzt)
+function applyKundeAutofill(k){
+  $('#kundeFirma').value = k.firma||'';
+  $('#kundeEmail').value = k.email||'';
+  $('#kundeTelefon').value = k.telefon||'';
+  $('#kundeAdresse').value = k.adresse||'';
+  if(k.rabattPct && !(parseFloat($('#extraDiscount').value)>0)) $('#extraDiscount').value = k.rabattPct;
+  refreshKundeInfoHint();
+}
+
 $('#kundeName').addEventListener('input', ()=>{
-  const name = $('#kundeName').value.trim();
-  if(!name) return;
-  const k = kunden.find(x=> (x.name||'').trim().toLowerCase() === name.toLowerCase());
-  if(k){
-    $('#kundeFirma').value = k.firma||'';
-    $('#kundeEmail').value = k.email||'';
-    $('#kundeTelefon').value = k.telefon||'';
-    $('#kundeAdresse').value = k.adresse||'';
-  }
+  const k = findKundeByName($('#kundeName').value);
+  if(k) applyKundeAutofill(k); else refreshKundeInfoHint();
 });
 
 function upsertKunde(){
@@ -512,9 +559,13 @@ function upsertKunde(){
     telefon: $('#kundeTelefon').value.trim(),
     adresse: $('#kundeAdresse').value.trim()
   };
-  let k = kunden.find(x=> (x.name||'').trim().toLowerCase() === name.toLowerCase());
+  let k = findKundeByName(name);
   if(k){ Object.assign(k, data); }
-  else { k = Object.assign({id:uid('k')}, data); kunden.push(k); }
+  else {
+    k = Object.assign({id:uid('k'), nummer: nextKundenNummer(), ustId:'', gruppe:'', rabattPct:0, zahlungsbedingungen:'', lieferbedingungen:'', notizen:''}, data);
+    kunden.push(k);
+    saveKundenCounter();
+  }
   saveKunden();
   renderKundenVerwaltung();
   renderKundenDatalist();
@@ -546,7 +597,7 @@ function renderKundenVerwaltung(){
     row.className = 'kv-row' + (kundenVerwaltungOpen.has(k.id) ? ' open' : '');
     row.innerHTML = `
       <div class="kv-head" data-toggle="${k.id}">
-        <div><span class="kv-name">${k.name || 'Ohne Namen'}</span>${k.firma?`<span class="kv-meta"> · ${k.firma}</span>`:''}</div>
+        <div><span class="kv-name">${k.name || 'Ohne Namen'}</span><span class="kv-meta"> · ${k.nummer||'–'}</span>${k.firma?`<span class="kv-meta"> · ${k.firma}</span>`:''}</div>
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="kv-meta">${matches.length} Angebot(e)${matches.length?' · '+fmt(summe)+' €':''}</span>
           <span class="kv-chevron">▶</span>
@@ -577,6 +628,34 @@ function renderKundenVerwaltung(){
             <input data-kv="${k.id}" data-field="adresse" value="${k.adresse||''}" placeholder="Straße, PLZ Ort">
           </div>
         </div>
+        <div class="row g3" style="margin-top:12px;">
+          <div class="field">
+            <label>USt-ID (optional)</label>
+            <input data-kv="${k.id}" data-field="ustId" value="${k.ustId||''}">
+          </div>
+          <div class="field">
+            <label>Kundengruppe</label>
+            <input data-kv="${k.id}" data-field="gruppe" value="${k.gruppe||''}" placeholder="z. B. Stammkunde, Gewerbe">
+          </div>
+          <div class="field">
+            <label>Standard-Rabatt (%)</label>
+            <input data-kv="${k.id}" data-field="rabattPct" type="number" min="0" max="100" step="1" value="${k.rabattPct||0}">
+          </div>
+        </div>
+        <div class="row g2" style="margin-top:12px;">
+          <div class="field">
+            <label>Zahlungsbedingungen</label>
+            <input data-kv="${k.id}" data-field="zahlungsbedingungen" value="${k.zahlungsbedingungen||''}" placeholder="z. B. 14 Tage netto">
+          </div>
+          <div class="field">
+            <label>Lieferbedingungen</label>
+            <input data-kv="${k.id}" data-field="lieferbedingungen" value="${k.lieferbedingungen||''}" placeholder="z. B. Abholung, versicherter Versand">
+          </div>
+        </div>
+        <div class="field" style="margin-top:12px;">
+          <label>Interne Notizen</label>
+          <textarea data-kv="${k.id}" data-field="notizen" rows="2">${k.notizen||''}</textarea>
+        </div>
         <div class="kv-stats">
           <span>Angebote gesamt: <b>${matches.length}</b></span>
           <span>Gesamtumsatz: <b>${fmt(summe)} €</b></span>
@@ -592,7 +671,7 @@ function renderKundenVerwaltung(){
           const info = angebotStatusInfo(a);
           return `
           <div class="kv-angebot-row">
-            <span>${a.nummer} · ${a.datum} · ${a.ergebnis.sumStueckzahl} Stk. · <span class="status-tag ${info.cls}">${info.label}</span></span>
+            <span>${a.nummer} · ${a.datum} · ${a.ergebnis.sumStueckzahl} ${a.ergebnis.einheitGesamt||'Stk.'} · <span class="status-tag ${info.cls}">${info.label}</span></span>
             <span style="display:flex; align-items:center; gap:8px;">
               <b style="color:var(--accent);">${fmt(a.ergebnis.gesamt)} €</b>
               <button class="ghost-btn" data-kvload="${a.id}">Laden</button>
@@ -615,7 +694,8 @@ function renderKundenVerwaltung(){
     el.addEventListener('click', e=> e.stopPropagation());
     el.addEventListener('input', e=>{
       const k = kunden.find(x=>x.id===e.target.dataset.kv);
-      k[e.target.dataset.field] = e.target.value;
+      const field = e.target.dataset.field;
+      k[field] = field==='rabattPct' ? (parseFloat(e.target.value)||0) : e.target.value;
       saveKunden();
       renderKundenDatalist();
     });
@@ -637,10 +717,7 @@ function renderKundenVerwaltung(){
       const k = kunden.find(x=>x.id===btn.dataset.newangebot);
       if(!k) return;
       $('#kundeName').value = k.name||'';
-      $('#kundeFirma').value = k.firma||'';
-      $('#kundeEmail').value = k.email||'';
-      $('#kundeTelefon').value = k.telefon||'';
-      $('#kundeAdresse').value = k.adresse||'';
+      applyKundeAutofill(k);
       document.querySelector('.tab[data-view="kalk"]').click();
     });
   });
@@ -653,10 +730,11 @@ function renderKundenVerwaltung(){
 }
 
 $('#addKundeVerwaltungBtn').addEventListener('click', ()=>{
-  const neu = {id:uid('k'), name:'Neuer Kunde', firma:'', email:'', telefon:'', adresse:''};
+  const neu = {id:uid('k'), nummer: nextKundenNummer(), name:'Neuer Kunde', firma:'', email:'', telefon:'', adresse:'', ustId:'', gruppe:'', rabattPct:0, zahlungsbedingungen:'', lieferbedingungen:'', notizen:''};
   kunden.push(neu);
   kundenVerwaltungOpen.add(neu.id);
   saveKunden();
+  saveKundenCounter();
   renderKundenVerwaltung();
   renderKundenDatalist();
 });
@@ -857,6 +935,7 @@ $('#vorlageLadenBtn').addEventListener('click', ()=>{
   addPosition({
     name: v.name,
     stueckzahl: 1,
+    einheit: v.einheit || 'Stk.',
     druckzeit: v.druckzeit,
     arbeitszeit: v.arbeitszeit,
     slots: JSON.parse(JSON.stringify(v.slots||[null,null,null,null])),
@@ -875,6 +954,7 @@ function addPosition(prefill){
     id: uid('p'),
     name: '',
     stueckzahl: 1,
+    einheit: 'Stk.',
     druckzeit: 0,
     arbeitszeit: 0,
     druckerId: drucker.length ? drucker[0].id : '',
@@ -914,14 +994,18 @@ function renderPositionen(){
           <button class="icon-btn" data-delpos="${pos.id}" title="Position löschen">✕</button>
         </div>
       </div>
-      <div class="row g3" style="margin-bottom:12px;">
+      <div class="row g4" style="margin-bottom:12px;">
         <div class="field">
           <label>Produktname</label>
           <input data-pos="${pos.id}" data-pfield="name" value="${pos.name||''}" placeholder="z. B. Halterung V2">
         </div>
         <div class="field">
-          <label>Stückzahl</label>
+          <label>Menge</label>
           <input data-pos="${pos.id}" data-pfield="stueckzahl" type="number" min="1" step="1" value="${pos.stueckzahl}">
+        </div>
+        <div class="field">
+          <label>Einheit</label>
+          <input data-pos="${pos.id}" data-pfield="einheit" list="einheitOptions" value="${pos.einheit||'Stk.'}" placeholder="Stk.">
         </div>
         <div class="field">
           <label>Drucker</label>
@@ -995,6 +1079,7 @@ function renderPositionen(){
       if(!name || !name.trim()) return;
       vorlagen.push({
         id: uid('v'), name: name.trim(),
+        einheit: pos.einheit || 'Stk.',
         druckzeit: pos.druckzeit, arbeitszeit: pos.arbeitszeit,
         slots: JSON.parse(JSON.stringify(pos.slots)),
         zubehoerItems: JSON.parse(JSON.stringify(pos.zubehoerItems)),
@@ -1528,6 +1613,8 @@ function computeQuote(){
   };
   const liefertermin = $('#liefertermin').value;
   const versandBetrag = parseFloat($('#versand').value)||0;
+  const einleitungstext = $('#einleitungstext').value.trim();
+  const schlusstext = $('#schlusstext').value.trim();
 
   let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, abschreibungTotal=0, amsRuestStunden=0, amsPositionen=0;
   const posLines = [];
@@ -1583,6 +1670,7 @@ function computeQuote(){
       nr: idx+1,
       name: pos.name || 'Ohne Namen',
       stueckzahl,
+      einheit: pos.einheit || 'Stk.',
       subtotal,
       proStueck: subtotal/stueckzahl,
       amsZuschlag: amsZuschlagH > 0,
@@ -1591,6 +1679,8 @@ function computeQuote(){
     });
   });
 
+  // Einheitliche Mengeneinheit über alle Positionen (für Gesamt-/Durchschnittsanzeige) – null, wenn gemischt
+  const einheitGesamt = posLines.length && posLines.every(l=>l.einheit===posLines[0].einheit) ? posLines[0].einheit : null;
   const sumStueckzahl = totalStueckzahl();
   const kostenSumme = materialTotal + stromTotal + wartungTotal + arbeitTotal + zubehoerTotal + abschreibungTotal + versandBetrag;
 
@@ -1621,7 +1711,7 @@ function computeQuote(){
     amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
     zwischensumme, expressOn, expressPct, expressBetrag, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
     rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
-    rundungsDiff, gesamt, sumStueckzahl};
+    rundungsDiff, gesamt, sumStueckzahl, einheitGesamt, einleitungstext, schlusstext};
 }
 
 function buildResultHtml(q){
@@ -1631,7 +1721,7 @@ function buildResultHtml(q){
   if(q.liefertermin) html += `<div style="color:var(--muted); font-size:12.5px; margin-bottom:14px;">Voraussichtlicher Liefertermin: ${new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')}</div>`;
 
   html += `<h3>Positionen</h3>`;
-  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} Stk.)${l.amsZuschlag?' · AMS':''}${l.amsWarn?' · ⚠ kein AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/Stk.</span></div>`).join('');
+  html += q.posLines.map(l=>`<div class="pos-line"><span>${l.nr}. ${l.name} (${l.stueckzahl} ${l.einheit})${l.amsZuschlag?' · AMS':''}${l.amsWarn?' · ⚠ kein AMS':''}</span><span>${fmt(l.subtotal)} € · ${fmt(l.proStueck)} €/${l.einheit}</span></div>`).join('');
 
   html += `<h3>Kosten gesamt</h3>`;
   html += `<div class="line"><span>Materialkosten</span><span>${fmt(q.materialTotal)} €</span></div>`;
@@ -1661,8 +1751,8 @@ function buildResultHtml(q){
   } else {
     html += `<div class="line"><span>zzgl. USt (${q.mwstSatz}%)</span><span>${fmt(q.mwstBetrag)} €</span></div>`;
   }
-  html += `<div class="total"><span>Gesamtpreis (${q.sumStueckzahl} Stk.)</span><span>${fmt(q.gesamt)} €</span></div>`;
-  if(q.sumStueckzahl>0) html += `<div class="line"><span>Ø Preis / Stück</span><span>${fmt(q.gesamt/q.sumStueckzahl)} €</span></div>`;
+  html += `<div class="total"><span>Gesamtpreis${q.einheitGesamt?` (${q.sumStueckzahl} ${q.einheitGesamt})`:''}</span><span>${fmt(q.gesamt)} €</span></div>`;
+  if(q.sumStueckzahl>0 && q.einheitGesamt) html += `<div class="line"><span>Ø Preis / ${q.einheitGesamt}</span><span>${fmt(q.gesamt/q.sumStueckzahl)} €</span></div>`;
   return html;
 }
 
@@ -1705,6 +1795,7 @@ function buildCsvRows(q, meta){
   rows.push(['Datum', (meta && meta.datum) || new Date().toLocaleDateString('de-DE')]);
   if(meta && meta.gueltigBis) rows.push(['Gültig bis', meta.gueltigBis]);
   if(q.liefertermin) rows.push(['Voraussichtlicher Liefertermin', new Date(q.liefertermin+'T00:00:00').toLocaleDateString('de-DE')]);
+  if(q.einleitungstext) rows.push(['Einleitungstext', q.einleitungstext]);
   if(q.kunde && q.kunde.name){
     rows.push([]);
     rows.push(['Kunde', q.kunde.name]);
@@ -1714,9 +1805,9 @@ function buildCsvRows(q, meta){
     if(q.kunde.telefon) rows.push(['Telefon', q.kunde.telefon]);
   }
   rows.push([]);
-  rows.push(['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']);
+  rows.push(['Pos.','Produkt','Menge','Einzelpreis (€)','Gesamtpreis (€)']);
   q.posLines.forEach(l=>{
-    rows.push([l.nr, l.name, l.stueckzahl, csvNum(l.proStueck), csvNum(l.subtotal)]);
+    rows.push([l.nr, l.name, `${l.stueckzahl} ${l.einheit}`, csvNum(l.proStueck), csvNum(l.subtotal)]);
   });
   rows.push([]);
   rows.push(['','','','Kostensumme', csvNum(q.kostenSumme)]);
@@ -1737,7 +1828,8 @@ function buildCsvRows(q, meta){
   rows.push(['','','','Netto-Gesamt', csvNum(q.nettoGesamt)]);
   rows.push(['','','','Umsatzsteuer', q.kleinunternehmer ? 'gem. §19 UStG nicht ausgewiesen' : `${q.mwstSatz}% = ${csvNum(q.mwstBetrag)} €`]);
   rows.push(['','','','Gesamtpreis', csvNum(q.gesamt)]);
-  if(q.sumStueckzahl>0) rows.push(['','','','Ø Preis / Stück', csvNum(q.gesamt/q.sumStueckzahl)]);
+  if(q.sumStueckzahl>0 && q.einheitGesamt) rows.push(['','','',`Ø Preis / ${q.einheitGesamt}`, csvNum(q.gesamt/q.sumStueckzahl)]);
+  if(q.schlusstext){ rows.push([]); rows.push(['Schlusstext', q.schlusstext]); }
   return rows;
 }
 
@@ -1823,10 +1915,17 @@ function buildPdfDoc(q, meta){
     y += 3;
   }
 
+  if(q.einleitungstext){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(0);
+    const introLines = doc.splitTextToSize(q.einleitungstext, 182);
+    doc.text(introLines, 14, y);
+    y += introLines.length * 5 + 5;
+  }
+
   doc.autoTable({
     startY: y,
-    head: [['Pos.','Produkt','Stückzahl','Einzelpreis (€)','Gesamtpreis (€)']],
-    body: q.posLines.map(l=>[l.nr, l.name, l.stueckzahl, fmt(l.proStueck), fmt(l.subtotal)]),
+    head: [['Pos.','Produkt','Menge','Einzelpreis (€)','Gesamtpreis (€)']],
+    body: q.posLines.map(l=>[l.nr, l.name, `${l.stueckzahl} ${l.einheit}`, fmt(l.proStueck), fmt(l.subtotal)]),
     theme: 'grid',
     headStyles: {fillColor:[242,84,45]},
     styles: {fontSize:9}
@@ -1852,7 +1951,7 @@ function buildPdfDoc(q, meta){
   summaryRows.push(['Netto-Gesamt', fmt(q.nettoGesamt)+' €']);
   summaryRows.push(['Umsatzsteuer', q.kleinunternehmer ? 'gem. §19 UStG nicht ausgewiesen' : `${q.mwstSatz}% = ${fmt(q.mwstBetrag)} €`]);
   summaryRows.push(['Gesamtpreis', fmt(q.gesamt)+' €']);
-  if(q.sumStueckzahl>0) summaryRows.push(['Ø Preis / Stück', fmt(q.gesamt/q.sumStueckzahl)+' €']);
+  if(q.sumStueckzahl>0 && q.einheitGesamt) summaryRows.push([`Ø Preis / ${q.einheitGesamt}`, fmt(q.gesamt/q.sumStueckzahl)+' €']);
 
   doc.autoTable({
     startY: y,
@@ -1865,11 +1964,19 @@ function buildPdfDoc(q, meta){
     }
   });
 
+  y = doc.lastAutoTable.finalY + 8;
+
+  if(q.schlusstext){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(0);
+    const schlussLines = doc.splitTextToSize(q.schlusstext, 182);
+    doc.text(schlussLines, 14, y);
+    y += schlussLines.length * 5 + 5;
+  }
+
   const footerLines = [];
   if(firma.iban) footerLines.push(`Zahlung per Überweisung: IBAN ${firma.iban}${firma.bic ? ' · BIC '+firma.bic : ''}${firma.name ? ' · '+firma.name : ''}`);
   if(q.kleinunternehmer) footerLines.push('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.');
   if(footerLines.length){
-    y = doc.lastAutoTable.finalY + 8;
     doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120);
     footerLines.forEach(line=>{ doc.text(line, 14, y); y += 4; });
   }
@@ -1905,7 +2012,8 @@ $('#mailAngebotBtn').addEventListener('click', ()=>{
   const nummer = $('#angebotsNr').value;
   const subject = `Ihr Angebot${nummer && nummer!=='wird beim Speichern vergeben' ? ' '+nummer : ''}${q.jobName ? ' – '+q.jobName : ''}`;
   const anrede = q.kunde.name ? `Hallo ${q.kunde.name.split(' ')[0]},` : 'Hallo,';
-  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} € (${q.sumStueckzahl} Stk.).\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firma.name ? '\n'+firma.name : ''}`;
+  const mengeSuffix = q.einheitGesamt ? ` (${q.sumStueckzahl} ${q.einheitGesamt})` : '';
+  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} €${mengeSuffix}.\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firma.name ? '\n'+firma.name : ''}`;
   window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 
@@ -1933,12 +2041,15 @@ function loadAngebotInForm(a){
   $('#express').checked = !!a.express;
   $('#expressPct').value = a.expressPct || allgemein.expressPct;
   $('#versand').value = a.versand || 0;
+  $('#einleitungstext').value = a.einleitungstext || '';
+  $('#schlusstext').value = a.schlusstext || '';
   const k = a.kunde || {};
   $('#kundeName').value = k.name || '';
   $('#kundeFirma').value = k.firma || '';
   $('#kundeEmail').value = k.email || '';
   $('#kundeTelefon').value = k.telefon || '';
   $('#kundeAdresse').value = k.adresse || '';
+  refreshKundeInfoHint();
   renderPositionen();
   updateTierHint();
   refreshLivePreview();
@@ -1978,7 +2089,7 @@ function renderArchiv(){
         <span class="aprice">${fmt(a.ergebnis.gesamt)} €</span>
       </div>
       <div class="aname">${a.jobName || 'Ohne Bezeichnung'}${a.kunde && a.kunde.name ? ' · '+a.kunde.name : ''}</div>
-      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'}${a.liefertermin ? ' · Liefertermin: '+new Date(a.liefertermin+'T00:00:00').toLocaleDateString('de-DE') : ''} · ${a.ergebnis.sumStueckzahl} Stk. · ${a.positionen.length} Position(en)${a.express?' · Express':''}</div>
+      <div class="ameta">Erstellt: ${a.datum} · Gültig bis: ${a.gueltigBis || '–'}${a.liefertermin ? ' · Liefertermin: '+new Date(a.liefertermin+'T00:00:00').toLocaleDateString('de-DE') : ''} · ${a.ergebnis.sumStueckzahl} ${a.ergebnis.einheitGesamt||'Stk.'} · ${a.positionen.length} Position(en)${a.express?' · Express':''}</div>
       <div class="abtns">
         <select class="status-select ${info.cls}" data-statussel="${a.id}" title="Angebots-Status">
           <option value="offen" ${info.value==='offen'?'selected':''}>${offenLabel}</option>
@@ -2055,6 +2166,8 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
     express: q.expressOn,
     expressPct: q.expressPct,
     versand: q.versandBetrag,
+    einleitungstext: q.einleitungstext,
+    schlusstext: q.schlusstext,
     positionen: JSON.parse(JSON.stringify(positionen)),
     margin: q.marginPct,
     extraDiscount: q.extraDiscountPct,
@@ -2072,7 +2185,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
 $('#exportBackupBtn').addEventListener('click', ()=>{
   const backup = {
     exportiertAm: new Date().toISOString(),
-    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, vorlagen
+    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, kundenCounter, vorlagen
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -2101,9 +2214,12 @@ $('#backupFile').addEventListener('change', async e=>{
     if(Array.isArray(data.zubehoer)) zubehoer = data.zubehoer;
     if(Array.isArray(data.drucker) && data.drucker.length) drucker = data.drucker;
     if(Array.isArray(data.kunden)) kunden = data.kunden;
+    if(typeof data.kundenCounter === 'number') kundenCounter = data.kundenCounter;
     if(Array.isArray(data.vorlagen)) vorlagen = data.vorlagen;
+    // Kunden aus älteren Backups ohne Kundennummer nachträglich durchnummerieren
+    kunden.forEach(k=>{ if(!k.nummer) k.nummer = nextKundenNummer(); });
 
-    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveVorlagen()]);
+    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveKundenCounter(), saveVorlagen()]);
     renderFirmaInputs(); renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
     renderDruckerList(); renderZubehoerList(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;

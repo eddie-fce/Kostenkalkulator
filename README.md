@@ -11,21 +11,22 @@ Keine Installation, kein Backend, kein Build-Schritt – reines HTML/CSS/JavaScr
   - Beliebig viele Filamente (Material + Farbe + Preis pro kg)
   - Beliebig viele Drucker-Profile (Name, Leistung in Watt, AMS-fähig, Anschaffungspreis + erwartete Lebensdauer) – jede Position wird einem Drucker zugeordnet; nur AMS-fähige Drucker erlauben Multicolor ohne manuellen Filamentwechsel; aus Anschaffungspreis/Lebensdauer wird automatisch ein zusätzlicher **Abschreibungssatz (€/Std.)** berechnet, der wie die Wartungskosten in jede Kalkulation einfließt
   - Zubehör/Hardware (z. B. Gewindeeinsätze, Schrauben, Muttern) mit Preis pro Stück – wird als Kostenzeile innerhalb einer Position erfasst, nicht als eigene Position
-  - Kundenliste (Name, Firma, Adresse, E-Mail, Telefon) – wird beim Speichern eines Angebots automatisch befüllt
-  - Positionsvorlagen (Filamente, Zubehör, Zeiten, Drucker) zum Wiederverwenden häufiger Produkte
+  - Kundenliste mit automatisch vergebener **Kundennummer** (K-0001, K-0002, …), Name, Firma, Adresse, E-Mail, Telefon, USt-ID, Kundengruppe, individuellem Standard-Rabatt (%), Zahlungs-/Lieferbedingungen und internen Notizen – wird beim Speichern eines Angebots automatisch befüllt
+  - Positionsvorlagen (Filamente, Zubehör, Zeiten, Drucker, Einheit) zum Wiederverwenden häufiger Produkte
   - Allgemeine Kosten: Strompreis (€/kWh), Wartung/Verschleiß (€/Druckstunde), Arbeitskosten (€/Stunde), Standard-Express-Zuschlag (%), Druckstunden/Tag/Drucker und Puffertage (Basis der Lieferterminschätzung), Standard-Versandpauschale (€) sowie Infill (%) und Volumendurchsatz (mm³/s) als Vorgaben für die Sofortschätzung aus STL/3MF
   - Mengenrabatt-Stufen ("ab X Stück Y % Rabatt")
-- **Kunden-Tab**: eigener Reiter mit allen Kunden alphabetisch sortiert (nur Namen in der Liste, mit Suche); Name anklicken zeigt Anschrift/Kontaktdaten, Kennzahlen (Anzahl Angebote, Gesamtumsatz, angenommene Angebote, letztes Angebot) und alle zurückliegenden Angebote dieses Kunden mit Status-Badge zum direkten Laden
+- **Kunden-Tab**: eigener Reiter mit allen Kunden alphabetisch sortiert (nur Namen in der Liste, mit Suche); Name anklicken zeigt Kundennummer, Anschrift/Kontaktdaten, USt-ID, Kundengruppe, Standard-Rabatt, Zahlungs-/Lieferbedingungen, interne Notizen, Kennzahlen (Anzahl Angebote, Gesamtumsatz, angenommene Angebote, letztes Angebot) und alle zurückliegenden Angebote dieses Kunden mit Status-Badge zum direkten Laden. Beim Eintragen eines bekannten Kundennamens im Auftrag werden Kontaktdaten, Standard-Rabatt und eine Kurzinfo (Kundennummer/Konditionen) automatisch übernommen
 - **Kalkulation**
-  - Beliebig viele Positionen (Produkte) pro Auftrag, je mit bis zu 4 Filamenten, Zubehör, Druckzeit, Arbeitszeit, Stückzahl und zugeordnetem Drucker
+  - Beliebig viele Positionen (Produkte) pro Auftrag, je mit bis zu 4 Filamenten, Zubehör, Druckzeit, Arbeitszeit, **frei wählbarer Einheit** (Stk., Std., m, kg, Pauschale, …) und zugeordnetem Drucker
   - Position **duplizieren** (⧉) oder **als Vorlage speichern** (💾); Vorlagen lassen sich über „Vorlage wählen…“ als neue Position laden
   - **Kundendaten** je Auftrag (Name mit Autovervollständigung aus der Kundenliste, Firma, Adresse, E-Mail, Telefon)
+  - **Einleitungs- und Schlusstext** (optional, mit Standardtext aus dem Firmenprofil vorausgefüllt, je Angebot überschreibbar) – erscheinen im PDF vor der Positionstabelle bzw. nach der Kostenaufstellung
   - **Express-Zuschlag** (%, an-/abschaltbar), **Lieferterminschätzung** (Button „Termin schätzen“, basierend auf Gesamt-Druckzeit, Anzahl Drucker, Druckstunden/Tag und Puffertagen; bei Express halbieren sich die Puffertage) und **Versand & Verpackung (€)** als eigene Kostenzeile
-  - Automatischer Mengenrabatt anhand der Gesamt-Stückzahl aller Positionen + optionaler manueller Zusatzrabatt
+  - Automatischer Mengenrabatt anhand der Gesamt-Stückzahl aller Positionen + optionaler manueller Zusatzrabatt (wird bei bekannten Kunden mit deren individuellem Rabatt vorausgefüllt)
   - Gewinnaufschlag in %
   - Detaillierte Kostenaufschlüsselung je Position und gesamt
   - **CSV-Export als Preisangebot** (Semikolon-getrennt, deutsches Zahlenformat, direkt in Excel/LibreOffice nutzbar)
-  - **PDF-Export als Preisangebot** (formatiertes Dokument mit Kundendaten, Positionstabelle und Kostenaufstellung)
+  - **PDF-Export als Preisangebot** (formatiertes Dokument mit Kundendaten, Einleitungstext, Positionstabelle, Kostenaufstellung und Schlusstext)
   - **Angebot per E-Mail senden**: lädt das PDF herunter und öffnet den Standard-Mail-Client mit vorausgefülltem Betreff/Text an die Kunden-E-Mail – das PDF muss aus Sicherheitsgründen (Browser können keine Anhänge automatisch setzen) manuell angehängt werden
   - **3MF-Import**: gesliste `.gcode.3mf`-Dateien (Bambu Studio / OrcaSlicer) importieren – Druckzeit und Filamentverbrauch je Farbe werden automatisch als neue Position übernommen
   - **⚡ Sofortschätzung aus STL/3MF**: grobe Kosteneinschätzung direkt aus einer noch **nicht** geslicten STL- oder 3MF-Datei, ganz ohne Slicing – berechnet das Massivvolumen aus der Geometrie und schätzt Gewicht/Druckzeit über Infill % und Material-Dichte
