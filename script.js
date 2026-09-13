@@ -11,6 +11,20 @@ const storage = window.storage ? window.storage : {
   }
 };
 
+// In der Electron-App kann das Fenster nach einem nativen confirm()/alert()-Dialog den
+// Tastaturfokus verlieren, sodass sich danach nichts mehr eintippen lässt. Fenster nach
+// jedem Dialog automatisch wieder fokussieren (bekannter Workaround für dieses Electron-Verhalten).
+(function fixDialogFocusLoss(){
+  const nativeConfirm = window.confirm.bind(window);
+  const nativeAlert = window.alert.bind(window);
+  function refocus(){
+    window.focus();
+    setTimeout(()=> window.focus(), 0);
+  }
+  window.confirm = (msg)=>{ const result = nativeConfirm(msg); refocus(); return result; };
+  window.alert = (msg)=>{ nativeAlert(msg); refocus(); };
+})();
+
 const MATERIALS = ["PLA","PETG","TPU","ABS","ASA","PC","PA (Nylon)","PVA","PLA-CF","PETG-CF","PA-CF","PET-CF","PPA-CF","Sonstiges"];
 
 // Sinnvolle Standard-Verschleißzuschläge (€ je Druckstunde), abgestuft nach Materialkategorie.
