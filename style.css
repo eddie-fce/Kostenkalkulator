@@ -161,3 +161,10 @@ select.status-select{width:auto;padding:4px 22px 4px 10px;cursor:pointer;}
   .fil-row{grid-template-columns:1fr;}
   .swatch{display:none;}
 }
+
+/* Eigene Dialoge (statt nativer confirm()/alert()) – vermeidet einen bekannten Electron-Bug,
+   bei dem das Fenster nach einem nativen Dialog den Tastaturfokus verlieren kann. */
+.custom-dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;}
+.custom-dialog{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+.custom-dialog p{white-space:pre-wrap;margin:0 0 18px;line-height:1.5;color:var(--text);font-size:14px;}
+.custom-dialog-actions{display:flex;justify-content:flex-end;gap:10px;}
