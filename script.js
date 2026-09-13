@@ -25,6 +25,68 @@ const storage = window.storage ? window.storage : {
   window.alert = (msg)=>{ nativeAlert(msg); refocus(); };
 })();
 
+// Sichtbares Fehler-Banner statt eines stillen Absturzes: falls ein unerwarteter Fehler die
+// Ausführung unterbricht, sieht man wenigstens WAS schiefgelaufen ist, statt nur "geht nicht mehr".
+(function showFatalErrorsVisibly(){
+  function showBanner(text){
+    let banner = document.getElementById('fatalErrorBanner');
+    if(!banner){
+      banner = document.createElement('div');
+      banner.id = 'fatalErrorBanner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:10px 14px;font:12px/1.4 monospace;white-space:pre-wrap;max-height:45vh;overflow:auto;';
+      document.body.appendChild(banner);
+    }
+    banner.textContent += (banner.textContent ? '\n\n' : '⚠ Unerwarteter Fehler – bitte diesen Text weitergeben:\n\n') + text;
+  }
+  window.addEventListener('error', e=>{
+    showBanner(`${e.message}\n${e.filename||''}:${e.lineno||''}:${e.colno||''}`);
+  });
+  window.addEventListener('unhandledrejection', e=>{
+    const r = e.reason;
+    showBanner(r && r.stack ? r.stack : String(r));
+  });
+})();
+
+// Eigene Hinweis-/Bestätigungsdialoge statt window.alert()/window.confirm(): native Dialoge
+// können in der Electron-App das Fenster nach dem Schließen ohne Tastaturfokus zurücklassen
+// (nichts lässt sich mehr eintippen). Diese Dialoge laufen komplett innerhalb der Seite ab.
+function showAlert(message){
+  return new Promise(resolve=>{
+    const overlay = $('#customDialogOverlay');
+    const okBtn = $('#customDialogOkBtn');
+    const cancelBtn = $('#customDialogCancelBtn');
+    $('#customDialogMessage').textContent = message;
+    cancelBtn.style.display = 'none';
+    overlay.style.display = 'flex';
+    function onOk(){
+      overlay.style.display = 'none';
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.style.display = '';
+      resolve();
+    }
+    okBtn.addEventListener('click', onOk);
+  });
+}
+function showConfirm(message){
+  return new Promise(resolve=>{
+    const overlay = $('#customDialogOverlay');
+    const okBtn = $('#customDialogOkBtn');
+    const cancelBtn = $('#customDialogCancelBtn');
+    $('#customDialogMessage').textContent = message;
+    cancelBtn.style.display = '';
+    overlay.style.display = 'flex';
+    function cleanup(){
+      overlay.style.display = 'none';
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+    }
+    function onOk(){ cleanup(); resolve(true); }
+    function onCancel(){ cleanup(); resolve(false); }
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+
 const MATERIALS = ["PLA","PETG","TPU","ABS","ASA","PC","PA (Nylon)","PVA","PLA-CF","PETG-CF","PA-CF","PET-CF","PPA-CF","Sonstiges"];
 
 // Sinnvolle Standard-Verschleißzuschläge (€ je Druckstunde), abgestuft nach Materialkategorie.
@@ -833,9 +895,9 @@ function renderKundenVerwaltung(){
     });
   });
   box.querySelectorAll('[data-delkv]').forEach(btn=>{
-    btn.addEventListener('click', e=>{
+    btn.addEventListener('click', async e=>{
       e.stopPropagation();
-      if(!confirm('Kunde wirklich löschen? Bereits gespeicherte Angebote bleiben im Archiv erhalten.')) return;
+      if(!(await showConfirm('Kunde wirklich löschen? Bereits gespeicherte Angebote bleiben im Archiv erhalten.'))) return;
       kunden = kunden.filter(x=>x.id!==btn.dataset.delkv);
       kundenVerwaltungOpen.delete(btn.dataset.delkv);
       saveKunden();
@@ -2130,19 +2192,19 @@ function pdfSafeName(q, prefix){
   return `preisangebot_${prefix?prefix+'_':''}${safeName || 'angebot'}.pdf`;
 }
 
-$('#exportPdfBtn').addEventListener('click', ()=>{
-  if(!window.jspdf){ alert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
+$('#exportPdfBtn').addEventListener('click', async ()=>{
+  if(!window.jspdf){ await showAlert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
   const q = computeQuote();
   const doc = buildPdfDoc(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
   doc.save(pdfSafeName(q));
 });
 
 // ---------- Angebot per E-Mail senden ----------
-$('#mailAngebotBtn').addEventListener('click', ()=>{
-  if(!window.jspdf){ alert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
+$('#mailAngebotBtn').addEventListener('click', async ()=>{
+  if(!window.jspdf){ await showAlert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
   const q = computeQuote();
   if(!positionen.length || !q.sumStueckzahl){
-    alert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
+    await showAlert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
     return;
   }
   const doc = buildPdfDoc(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
@@ -2279,8 +2341,8 @@ function renderArchiv(){
     });
   });
   box.querySelectorAll('[data-pdf]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      if(!window.jspdf){ alert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
+    btn.addEventListener('click', async ()=>{
+      if(!window.jspdf){ await showAlert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
       const a = angebote.find(x=>x.id===btn.dataset.pdf);
       if(!a) return;
       const doc = buildPdfDoc(a.ergebnis, {nummer: a.nummer, datum: a.datum, gueltigBis: a.gueltigBis});
@@ -2297,10 +2359,10 @@ function renderArchiv(){
   });
 }
 
-$('#saveAngebotBtn').addEventListener('click', ()=>{
+$('#saveAngebotBtn').addEventListener('click', async ()=>{
   const q = computeQuote();
   if(!positionen.length || !q.sumStueckzahl){
-    alert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
+    await showAlert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
     return;
   }
   if(q.kunde.name) upsertKunde();
@@ -2331,7 +2393,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
   saveAngebote();
   renderArchiv();
   renderKundenVerwaltung();
-  alert(`Angebot ${nummer} gespeichert (${fmt(q.gesamt)} €). Im Archiv abrufbar.`);
+  await showAlert(`Angebot ${nummer} gespeichert (${fmt(q.gesamt)} €). Im Archiv abrufbar.`);
 });
 
 // ---------- Stammdaten-Backup ----------
@@ -2357,7 +2419,7 @@ $('#backupFile').addEventListener('change', async e=>{
   try{
     const text = await file.text();
     const data = JSON.parse(text);
-    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Versandarten, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
+    if(!(await showConfirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Versandarten, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).'))) return;
 
     if(data.firma) firma = Object.assign({}, firma, data.firma);
     if(Array.isArray(data.filamente)) filamente = data.filamente;
