@@ -215,19 +215,23 @@
       <p class="hint">Erscheint als Briefkopf auf dem PDF-Angebot. Das Logo wird beim Hochladen automatisch verkleinert und nur lokal gespeichert.</p>
       <div class="row g3">
         <div class="field">
-          <label>Firmenname</label>
-          <input id="firmaName" placeholder="z. B. Mustermann 3D-Druck">
+          <label title="Wird groß im PDF-Briefkopf und als E-Mail-Signatur verwendet">Anzeigename (umgangssprachlich)</label>
+          <input id="firmaAnzeigename" placeholder="z. B. Eddies 3D-Druck">
+        </div>
+        <div class="field">
+          <label title="Vollständiger rechtlicher Name laut Gewerbeanmeldung – erscheint klein im Impressum-Block, falls abweichend">Rechtlicher Name</label>
+          <input id="firmaName" placeholder="z. B. Max Mustermann e.K.">
         </div>
         <div class="field">
           <label>Ansprechpartner (optional)</label>
           <input id="firmaAnsprechpartner">
         </div>
+      </div>
+      <div class="row g3" style="margin-top:12px;">
         <div class="field">
           <label>Telefon</label>
           <input id="firmaTelefon">
         </div>
-      </div>
-      <div class="row g3" style="margin-top:12px;">
         <div class="field">
           <label>E-Mail</label>
           <input id="firmaEmail" type="email">
@@ -236,6 +240,8 @@
           <label>Website (optional)</label>
           <input id="firmaWebsite" placeholder="www.beispiel.de">
         </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
         <div class="field">
           <label>Adresse</label>
           <input id="firmaAdresse" placeholder="Straße, PLZ Ort">

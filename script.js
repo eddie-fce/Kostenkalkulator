@@ -38,7 +38,7 @@ const MATERIAL_DENSITY = {
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
+let firma = { anzeigename:'', name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
 let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, versandStandard:0, infillEstimatePct:20, volumenrateMm3S:15 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
@@ -234,6 +234,7 @@ function guessHex(name){
 
 // ---------- Stammdaten: Firmenprofil (Absender) ----------
 function renderFirmaInputs(){
+  $('#firmaAnzeigename').value = firma.anzeigename||'';
   $('#firmaName').value = firma.name||'';
   $('#firmaAnsprechpartner').value = firma.ansprechpartner||'';
   $('#firmaTelefon').value = firma.telefon||'';
@@ -253,8 +254,9 @@ function renderFirmaInputs(){
     $('#firmaLogoPreviewWrap').style.display = 'none';
   }
 }
-['firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic','firmaStandardEinleitung','firmaStandardSchluss'].forEach(id=>{
+['firmaAnzeigename','firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic','firmaStandardEinleitung','firmaStandardSchluss'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
+    firma.anzeigename = $('#firmaAnzeigename').value.trim();
     firma.name = $('#firmaName').value.trim();
     firma.ansprechpartner = $('#firmaAnsprechpartner').value.trim();
     firma.telefon = $('#firmaTelefon').value.trim();
@@ -1873,12 +1875,15 @@ function buildPdfDoc(q, meta){
       headBottom = Math.max(headBottom, y + h);
     }catch(e){ /* Logo nicht lesbar - PDF trotzdem ohne Logo erzeugen */ }
   }
-  if(firma.name || firma.adresse || firma.email || firma.telefon){
+  const firmaHeadline = firma.anzeigename || firma.name;
+  const firmaRechtlicherZusatz = (firma.name && firma.anzeigename && firma.name !== firma.anzeigename) ? firma.name : '';
+  if(firmaHeadline || firma.adresse || firma.email || firma.telefon){
     let fy = y + 4;
     doc.setFont('helvetica','bold'); doc.setFontSize(11);
-    if(firma.name){ doc.text(firma.name, 196, fy, {align:'right'}); fy += 5; }
+    if(firmaHeadline){ doc.text(firmaHeadline, 196, fy, {align:'right'}); fy += 5; }
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90);
     [
+      firmaRechtlicherZusatz,
       firma.ansprechpartner,
       firma.adresse,
       [firma.telefon, firma.email].filter(Boolean).join(' · '),
@@ -2013,7 +2018,8 @@ $('#mailAngebotBtn').addEventListener('click', ()=>{
   const subject = `Ihr Angebot${nummer && nummer!=='wird beim Speichern vergeben' ? ' '+nummer : ''}${q.jobName ? ' – '+q.jobName : ''}`;
   const anrede = q.kunde.name ? `Hallo ${q.kunde.name.split(' ')[0]},` : 'Hallo,';
   const mengeSuffix = q.einheitGesamt ? ` (${q.sumStueckzahl} ${q.einheitGesamt})` : '';
-  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} €${mengeSuffix}.\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firma.name ? '\n'+firma.name : ''}`;
+  const firmaSignatur = firma.anzeigename || firma.name;
+  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} €${mengeSuffix}.\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firmaSignatur ? '\n'+firmaSignatur : ''}`;
   window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 
