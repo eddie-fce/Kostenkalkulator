@@ -7,13 +7,14 @@ Keine Installation, kein Backend, kein Build-Schritt – reines HTML/CSS/JavaScr
 ## Funktionen
 
 - **Stammdaten**
-  - Firmenprofil (Absender): Firmenname, Kontakt, Adresse, USt-ID/Steuernummer, IBAN/BIC und Logo – erscheint als Briefkopf auf dem PDF-Angebot, das Logo wird beim Hochladen automatisch verkleinert
+  - Firmenprofil (Absender): Anzeigename (umgangssprachlicher Name, z. B. Fantasiename) und rechtlicher Name getrennt erfassbar, dazu Kontakt, Adresse, USt-ID/Steuernummer, IBAN/BIC und Logo – der Anzeigename erscheint groß im PDF-Briefkopf und als E-Mail-Signatur, der rechtliche Name (falls abweichend) klein darunter im Impressum-Block; das Logo wird beim Hochladen automatisch verkleinert
   - Beliebig viele Filamente (Material + Farbe + Preis pro kg)
   - Beliebig viele Drucker-Profile (Name, Leistung in Watt, AMS-fähig, Anschaffungspreis + erwartete Lebensdauer) – jede Position wird einem Drucker zugeordnet; nur AMS-fähige Drucker erlauben Multicolor ohne manuellen Filamentwechsel; aus Anschaffungspreis/Lebensdauer wird automatisch ein zusätzlicher **Abschreibungssatz (€/Std.)** berechnet, der wie die Wartungskosten in jede Kalkulation einfließt
   - Zubehör/Hardware (z. B. Gewindeeinsätze, Schrauben, Muttern) mit Preis pro Stück – wird als Kostenzeile innerhalb einer Position erfasst, nicht als eigene Position
   - Kundenliste mit automatisch vergebener **Kundennummer** (K-0001, K-0002, …), Name, Firma, Adresse, E-Mail, Telefon, USt-ID, Kundengruppe, individuellem Standard-Rabatt (%), Zahlungs-/Lieferbedingungen und internen Notizen – wird beim Speichern eines Angebots automatisch befüllt
   - Positionsvorlagen (Filamente, Zubehör, Zeiten, Drucker, Einheit) zum Wiederverwenden häufiger Produkte
-  - Allgemeine Kosten: Strompreis (€/kWh), Wartung/Verschleiß (€/Druckstunde), Arbeitskosten (€/Stunde), Standard-Express-Zuschlag (%), Druckstunden/Tag/Drucker und Puffertage (Basis der Lieferterminschätzung), Standard-Versandpauschale (€) sowie Infill (%) und Volumendurchsatz (mm³/s) als Vorgaben für die Sofortschätzung aus STL/3MF
+  - Allgemeine Kosten: Strompreis (€/kWh), Wartung/Verschleiß (€/Druckstunde), Arbeitskosten (€/Stunde), Standard-Express-Zuschlag (%), Druckstunden/Tag/Drucker und Puffertage (Basis der Lieferterminschätzung), Standard-Versandart (wird bei neuen Aufträgen vorausgewählt) sowie Infill (%) und Volumendurchsatz (mm³/s) als Vorgaben für die Sofortschätzung aus STL/3MF
+  - Versandarten (Paketgrößen): eigene Liste mit Bezeichnung + Preis, vorbefüllt mit den DHL-Paketklassen (Päckchen, Paket S/M/L/XL) als Vorlage – Namen und Preise frei anpassbar, z. B. an eigene Geschäftskundenkonditionen
   - Mengenrabatt-Stufen ("ab X Stück Y % Rabatt")
 - **Kunden-Tab**: eigener Reiter mit allen Kunden alphabetisch sortiert (nur Namen in der Liste, mit Suche); Name anklicken zeigt Kundennummer, Anschrift/Kontaktdaten, USt-ID, Kundengruppe, Standard-Rabatt, Zahlungs-/Lieferbedingungen, interne Notizen, Kennzahlen (Anzahl Angebote, Gesamtumsatz, angenommene Angebote, letztes Angebot) und alle zurückliegenden Angebote dieses Kunden mit Status-Badge zum direkten Laden. Beim Eintragen eines bekannten Kundennamens im Auftrag werden Kontaktdaten, Standard-Rabatt und eine Kurzinfo (Kundennummer/Konditionen) automatisch übernommen
 - **Kalkulation**
@@ -21,7 +22,7 @@ Keine Installation, kein Backend, kein Build-Schritt – reines HTML/CSS/JavaScr
   - Position **duplizieren** (⧉) oder **als Vorlage speichern** (💾); Vorlagen lassen sich über „Vorlage wählen…“ als neue Position laden
   - **Kundendaten** je Auftrag (Name mit Autovervollständigung aus der Kundenliste, Firma, Adresse, E-Mail, Telefon)
   - **Einleitungs- und Schlusstext** (optional, mit Standardtext aus dem Firmenprofil vorausgefüllt, je Angebot überschreibbar) – erscheinen im PDF vor der Positionstabelle bzw. nach der Kostenaufstellung
-  - **Express-Zuschlag** (%, an-/abschaltbar), **Lieferterminschätzung** (Button „Termin schätzen“, basierend auf Gesamt-Druckzeit, Anzahl Drucker, Druckstunden/Tag und Puffertagen; bei Express halbieren sich die Puffertage) und **Versand & Verpackung (€)** als eigene Kostenzeile
+  - **Express-Zuschlag** (%, an-/abschaltbar), **Lieferterminschätzung** (Button „Termin schätzen“, basierend auf Gesamt-Druckzeit, Anzahl Drucker, Druckstunden/Tag und Puffertagen; bei Express halbieren sich die Puffertage) und **Versand & Verpackung** als eigene Kostenzeile – Auswahl per Dropdown aus den in den Stammdaten hinterlegten Versandarten (Paketgröße/-gewicht, Vorlage: DHL) oder „Kein Versand/Abholung“; alternativ ein manueller Betrag über „Sonstiger Betrag“
   - Automatischer Mengenrabatt anhand der Gesamt-Stückzahl aller Positionen + optionaler manueller Zusatzrabatt (wird bei bekannten Kunden mit deren individuellem Rabatt vorausgefüllt)
   - Gewinnaufschlag in %
   - Detaillierte Kostenaufschlüsselung je Position und gesamt

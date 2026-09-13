@@ -38,12 +38,13 @@ const MATERIAL_DENSITY = {
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
-let firma = { name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
-let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, versandStandard:0, infillEstimatePct:20, volumenrateMm3S:15 };
+let firma = { anzeigename:'', name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
+let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, standardVersandartId:'', infillEstimatePct:20, volumenrateMm3S:15 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
 let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
 let zubehoer = [];               // [{id, name, preis}] – Zubehör/Hardware, Preis pro Stück
 let drucker = [];                // [{id, name, leistung, amsFaehig}]
+let versandarten = [];            // [{id, name, preis}] – Versandarten/Paketgrößen, Vorlage: DHL-Paketklassen
 let kunden = [];                 // [{id, nummer, name, firma, adresse, email, telefon, ustId, gruppe, rabattPct, zahlungsbedingungen, lieferbedingungen, notizen}]
 let kundenCounter = 0;
 let vorlagen = [];                // [{id, name, druckzeit, arbeitszeit, slots, zubehoerItems, druckerId}]
@@ -97,6 +98,21 @@ async function loadData(){
     saveDrucker();
   }
   try{
+    const va = await storage.get('versandarten', false);
+    versandarten = va ? JSON.parse(va.value) : [];
+  }catch(e){ versandarten = []; }
+  if(!versandarten.length){
+    // Erstbefüllung: DHL-Paketklassen als Vorlage, Preise/Bezeichnungen sind danach frei anpassbar
+    versandarten = [
+      {id: uid('vs'), name:'DHL Päckchen (bis 2 kg)', preis:4.29},
+      {id: uid('vs'), name:'DHL Paket S (bis 2 kg)', preis:5.49},
+      {id: uid('vs'), name:'DHL Paket M (bis 5 kg)', preis:7.49},
+      {id: uid('vs'), name:'DHL Paket L (bis 10 kg)', preis:10.49},
+      {id: uid('vs'), name:'DHL Paket XL (bis 31,5 kg)', preis:17.99}
+    ];
+    saveVersandarten();
+  }
+  try{
     const k = await storage.get('kunden', false);
     kunden = k ? JSON.parse(k.value) : [];
   }catch(e){ kunden = []; }
@@ -127,7 +143,6 @@ async function loadData(){
   const d = new Date(); d.setDate(d.getDate()+14);
   $('#gueltigBis').value = d.toISOString().slice(0,10);
   $('#expressPct').value = allgemein.expressPct;
-  $('#versand').value = allgemein.versandStandard;
   $('#einleitungstext').value = firma.standardEinleitung||'';
   $('#schlusstext').value = firma.standardSchluss||'';
 
@@ -135,6 +150,10 @@ async function loadData(){
   renderFilamentList();
   renderDruckerList();
   renderZubehoerList();
+  renderVersandartenList();
+  renderVersandartSelects();
+  $('#versandart').value = allgemein.standardVersandartId || '';
+  toggleVersandManuell();
   renderKundenVerwaltung();
   renderKundenDatalist();
   renderVorlagenList();
@@ -179,6 +198,10 @@ async function saveZubehoer(){
 }
 async function saveDrucker(){
   try{ await storage.set('drucker', JSON.stringify(drucker), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveVersandarten(){
+  try{ await storage.set('versandarten', JSON.stringify(versandarten), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveKunden(){
@@ -234,6 +257,7 @@ function guessHex(name){
 
 // ---------- Stammdaten: Firmenprofil (Absender) ----------
 function renderFirmaInputs(){
+  $('#firmaAnzeigename').value = firma.anzeigename||'';
   $('#firmaName').value = firma.name||'';
   $('#firmaAnsprechpartner').value = firma.ansprechpartner||'';
   $('#firmaTelefon').value = firma.telefon||'';
@@ -253,8 +277,9 @@ function renderFirmaInputs(){
     $('#firmaLogoPreviewWrap').style.display = 'none';
   }
 }
-['firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic','firmaStandardEinleitung','firmaStandardSchluss'].forEach(id=>{
+['firmaAnzeigename','firmaName','firmaAnsprechpartner','firmaTelefon','firmaEmail','firmaWebsite','firmaAdresse','firmaUstId','firmaSteuernummer','firmaIban','firmaBic','firmaStandardEinleitung','firmaStandardSchluss'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
+    firma.anzeigename = $('#firmaAnzeigename').value.trim();
     firma.name = $('#firmaName').value.trim();
     firma.ansprechpartner = $('#firmaAnsprechpartner').value.trim();
     firma.telefon = $('#firmaTelefon').value.trim();
@@ -349,6 +374,11 @@ function renderFilamentList(){
       if(field==='farbe') f.farbHex = guessHex(f.farbe);
       saveFilamente();
       renderPositionen();
+    });
+    // Die Liste (Swatch-Farbe, Wartungs-Badge je Materialgruppe) erst beim Verlassen des
+    // Feldes neu aufbauen, sonst würde jedes Zeichen den Fokus aus dem Eingabefeld werfen.
+    el.addEventListener('change', e=>{
+      const field = e.target.dataset.field;
       if(field==='farbe' || field==='material') renderFilamentList();
     });
   });
@@ -428,9 +458,14 @@ function renderDruckerList(){
       const field = e.target.dataset.field;
       d[field] = field==='amsFaehig' ? e.target.checked : (field==='name' ? e.target.value : (parseFloat(e.target.value)||0));
       saveDrucker();
-      if(field==='anschaffungspreis' || field==='lebensdauerStd') renderDruckerList();
       renderPositionen();
       refreshLivePreview();
+    });
+    // Das Abschreibung-€/Std.-Badge erst beim Verlassen des Feldes neu aufbauen, sonst würde
+    // jede eingegebene Ziffer den Fokus aus dem Eingabefeld werfen.
+    el.addEventListener('change', e=>{
+      const field = e.target.dataset.field;
+      if(field==='anschaffungspreis' || field==='lebensdauerStd') renderDruckerList();
     });
   });
   box.querySelectorAll('[data-del]').forEach(btn=>{
@@ -499,6 +534,89 @@ $('#addZubehoerBtn').addEventListener('click', ()=>{
   zubehoer.push({id:uid('z'), name:'', preis:0});
   saveZubehoer();
   renderZubehoerList();
+});
+
+// ---------- Stammdaten: Versandarten (Paketgrößen, Vorlage: DHL) ----------
+function renderVersandartenList(){
+  const box = $('#versandartenList');
+  box.innerHTML = '';
+  $('#versandartenEmpty').style.display = versandarten.length ? 'none' : 'block';
+
+  versandarten.forEach(v=>{
+    const row = document.createElement('div');
+    row.className = 'disc-row';
+    row.innerHTML = `
+      <div class="field">
+        <label>Bezeichnung</label>
+        <input data-id="${v.id}" data-field="name" value="${v.name||''}" placeholder="z. B. DHL Paket M (bis 5 kg)">
+      </div>
+      <div class="field">
+        <label>Preis (€)</label>
+        <input data-id="${v.id}" data-field="preis" type="number" min="0" step="0.01" value="${v.preis||0}">
+      </div>
+      <button class="icon-btn" data-del="${v.id}" title="Versandart löschen">✕</button>
+    `;
+    box.appendChild(row);
+  });
+
+  box.querySelectorAll('[data-field]').forEach(el=>{
+    el.addEventListener('input', e=>{
+      const v = versandarten.find(x=>x.id===e.target.dataset.id);
+      const field = e.target.dataset.field;
+      v[field] = field==='preis' ? (parseFloat(e.target.value)||0) : e.target.value;
+      saveVersandarten();
+    });
+    // Namen/Preise erst beim Verlassen des Feldes in den Dropdowns aktualisieren, sonst
+    // würde jedes eingegebene Zeichen den Fokus aus dem Eingabefeld werfen.
+    el.addEventListener('change', ()=> renderVersandartSelects());
+  });
+  box.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      versandarten = versandarten.filter(x=>x.id!==btn.dataset.del);
+      if(allgemein.standardVersandartId === btn.dataset.del){ allgemein.standardVersandartId = ''; saveAllgemein(); }
+      saveVersandarten();
+      renderVersandartenList();
+      renderVersandartSelects();
+    });
+  });
+}
+
+$('#addVersandartBtn').addEventListener('click', ()=>{
+  versandarten.push({id:uid('vs'), name:'', preis:0});
+  saveVersandarten();
+  renderVersandartenList();
+  renderVersandartSelects();
+});
+
+// Befüllt sowohl das Versand-Dropdown im Auftrag als auch die Standard-Versandart in den Stammdaten
+function renderVersandartSelects(){
+  const options = ['<option value="">— Kein Versand / Abholung —</option>']
+    .concat(versandarten.map(v=>`<option value="${v.id}">${(v.name||'Unbenannt')} – ${fmt(v.preis||0)} €</option>`))
+    .concat(['<option value="custom">Sonstiger Betrag (manuell)</option>']);
+  const auftragSel = $('#versandart');
+  const auftragPrev = auftragSel.value;
+  auftragSel.innerHTML = options.join('');
+  if([...auftragSel.options].some(o=>o.value===auftragPrev)) auftragSel.value = auftragPrev;
+
+  const stdOptions = ['<option value="">— Kein Versand / Abholung —</option>']
+    .concat(versandarten.map(v=>`<option value="${v.id}">${(v.name||'Unbenannt')} – ${fmt(v.preis||0)} €</option>`));
+  const stdSel = $('#genVersandart');
+  stdSel.innerHTML = stdOptions.join('');
+  stdSel.value = versandarten.some(v=>v.id===allgemein.standardVersandartId) ? allgemein.standardVersandartId : '';
+}
+
+function toggleVersandManuell(){
+  $('#versandManuellWrap').style.display = $('#versandart').value === 'custom' ? 'block' : 'none';
+}
+$('#versandart').addEventListener('change', ()=>{
+  toggleVersandManuell();
+  refreshLivePreview();
+});
+$('#versandManuell').addEventListener('input', refreshLivePreview);
+
+$('#genVersandart').addEventListener('change', ()=>{
+  allgemein.standardVersandartId = $('#genVersandart').value;
+  saveAllgemein();
 });
 
 // ---------- Kundenverwaltung (eigener Tab) ----------
@@ -754,14 +872,13 @@ function renderGeneralInputs(){
   $('#genExpressPct').value = allgemein.expressPct;
   $('#genStdProTag').value = allgemein.stdProTag;
   $('#genPufferTage').value = allgemein.pufferTage;
-  $('#genVersand').value = allgemein.versandStandard;
   $('#genInfillEstimate').value = allgemein.infillEstimatePct;
   $('#genVolumenrate').value = allgemein.volumenrateMm3S;
   $('#genKleinunternehmer').checked = !!allgemein.kleinunternehmer;
   $('#genMwst').value = allgemein.mwst;
   $('#mwstFieldWrap').style.display = allgemein.kleinunternehmer ? 'none' : 'block';
 }
-['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage','genVersand','genInfillEstimate','genVolumenrate'].forEach(id=>{
+['genStrompreis','genArbeit','genAmsRuest','genAusschuss','genMwst','genExpressPct','genStdProTag','genPufferTage','genInfillEstimate','genVolumenrate'].forEach(id=>{
   $('#'+id).addEventListener('change', ()=>{
     allgemein.strompreis  = parseFloat($('#genStrompreis').value)||0;
     allgemein.arbeit      = parseFloat($('#genArbeit').value)||0;
@@ -771,7 +888,6 @@ function renderGeneralInputs(){
     allgemein.expressPct   = parseFloat($('#genExpressPct').value)||0;
     allgemein.stdProTag    = parseFloat($('#genStdProTag').value)||16;
     allgemein.pufferTage   = parseFloat($('#genPufferTage').value)||0;
-    allgemein.versandStandard = parseFloat($('#genVersand').value)||0;
     allgemein.infillEstimatePct = parseFloat($('#genInfillEstimate').value)||20;
     allgemein.volumenrateMm3S = parseFloat($('#genVolumenrate').value)||15;
     saveAllgemein();
@@ -1612,7 +1728,15 @@ function computeQuote(){
     adresse: $('#kundeAdresse').value.trim()
   };
   const liefertermin = $('#liefertermin').value;
-  const versandBetrag = parseFloat($('#versand').value)||0;
+  const versandartId = $('#versandart').value;
+  let versandBetrag = 0, versandartName = '';
+  if(versandartId === 'custom'){
+    versandBetrag = parseFloat($('#versandManuell').value)||0;
+    versandartName = 'Sonstiger Betrag';
+  } else if(versandartId){
+    const v = versandarten.find(x=>x.id===versandartId);
+    if(v){ versandBetrag = v.preis||0; versandartName = v.name||''; }
+  }
   const einleitungstext = $('#einleitungstext').value.trim();
   const schlusstext = $('#schlusstext').value.trim();
 
@@ -1707,7 +1831,7 @@ function computeQuote(){
   const gesamt = roundPrice(bruttoGesamt, allgemein.rundung);
   const rundungsDiff = gesamt - bruttoGesamt;
 
-  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal, abschreibungTotal, versandBetrag,
+  return {jobName, kunde, liefertermin, posLines, materialTotal, stromTotal, wartungTotal, arbeitTotal, zubehoerTotal, abschreibungTotal, versandBetrag, versandartId, versandartName,
     amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
     zwischensumme, expressOn, expressPct, expressBetrag, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
     rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
@@ -1732,7 +1856,7 @@ function buildResultHtml(q){
   html += `<div class="line"><span>${arbeitLabel}</span><span>${fmt(q.arbeitTotal)} €</span></div>`;
   if(q.zubehoerTotal>0) html += `<div class="line"><span>Zubehör/Hardware</span><span>${fmt(q.zubehoerTotal)} €</span></div>`;
   if(q.abschreibungTotal>0) html += `<div class="line"><span>Maschinenabschreibung</span><span>${fmt(q.abschreibungTotal)} €</span></div>`;
-  if(q.versandBetrag>0) html += `<div class="line"><span>Versand & Verpackung</span><span>${fmt(q.versandBetrag)} €</span></div>`;
+  if(q.versandBetrag>0) html += `<div class="line"><span>Versand & Verpackung${q.versandartName?' ('+q.versandartName+')':''}</span><span>${fmt(q.versandBetrag)} €</span></div>`;
   html += `<div class="line"><span>Kostensumme</span><span>${fmt(q.kostenSumme)} €</span></div>`;
   if(q.ausschussPct>0) html += `<div class="line"><span>Ausschuss-Puffer (${q.ausschussPct}%)</span><span>${fmt(q.ausschussBetrag)} €</span></div>`;
   html += `<div class="line"><span>Zwischensumme</span><span>${fmt(q.zwischensumme)} €</span></div>`;
@@ -1813,7 +1937,7 @@ function buildCsvRows(q, meta){
   rows.push(['','','','Kostensumme', csvNum(q.kostenSumme)]);
   if(q.zubehoerTotal>0) rows.push(['','','','davon Zubehör/Hardware', csvNum(q.zubehoerTotal)]);
   if(q.abschreibungTotal>0) rows.push(['','','','davon Maschinenabschreibung', csvNum(q.abschreibungTotal)]);
-  if(q.versandBetrag>0) rows.push(['','','','davon Versand & Verpackung', csvNum(q.versandBetrag)]);
+  if(q.versandBetrag>0) rows.push(['','','',`davon Versand & Verpackung${q.versandartName?' ('+q.versandartName+')':''}`, csvNum(q.versandBetrag)]);
   if(q.ausschussPct>0) rows.push(['','','',`Ausschuss-Puffer (${q.ausschussPct}%)`, csvNum(q.ausschussBetrag)]);
   rows.push(['','','','Zwischensumme', csvNum(q.zwischensumme)]);
   if(q.expressPct>0) rows.push(['','','',`Express-Zuschlag (${q.expressPct}%)`, csvNum(q.expressBetrag)]);
@@ -1873,12 +1997,15 @@ function buildPdfDoc(q, meta){
       headBottom = Math.max(headBottom, y + h);
     }catch(e){ /* Logo nicht lesbar - PDF trotzdem ohne Logo erzeugen */ }
   }
-  if(firma.name || firma.adresse || firma.email || firma.telefon){
+  const firmaHeadline = firma.anzeigename || firma.name;
+  const firmaRechtlicherZusatz = (firma.name && firma.anzeigename && firma.name !== firma.anzeigename) ? firma.name : '';
+  if(firmaHeadline || firma.adresse || firma.email || firma.telefon){
     let fy = y + 4;
     doc.setFont('helvetica','bold'); doc.setFontSize(11);
-    if(firma.name){ doc.text(firma.name, 196, fy, {align:'right'}); fy += 5; }
+    if(firmaHeadline){ doc.text(firmaHeadline, 196, fy, {align:'right'}); fy += 5; }
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90);
     [
+      firmaRechtlicherZusatz,
       firma.ansprechpartner,
       firma.adresse,
       [firma.telefon, firma.email].filter(Boolean).join(' · '),
@@ -1936,7 +2063,7 @@ function buildPdfDoc(q, meta){
   summaryRows.push(['Kostensumme', fmt(q.kostenSumme)+' €']);
   if(q.zubehoerTotal>0) summaryRows.push(['davon Zubehör/Hardware', fmt(q.zubehoerTotal)+' €']);
   if(q.abschreibungTotal>0) summaryRows.push(['davon Maschinenabschreibung', fmt(q.abschreibungTotal)+' €']);
-  if(q.versandBetrag>0) summaryRows.push(['davon Versand & Verpackung', fmt(q.versandBetrag)+' €']);
+  if(q.versandBetrag>0) summaryRows.push([`davon Versand & Verpackung${q.versandartName?' ('+q.versandartName+')':''}`, fmt(q.versandBetrag)+' €']);
   if(q.ausschussPct>0) summaryRows.push([`Ausschuss-Puffer (${q.ausschussPct}%)`, fmt(q.ausschussBetrag)+' €']);
   summaryRows.push(['Zwischensumme', fmt(q.zwischensumme)+' €']);
   if(q.expressPct>0) summaryRows.push([`Express-Zuschlag (${q.expressPct}%)`, fmt(q.expressBetrag)+' €']);
@@ -2013,7 +2140,8 @@ $('#mailAngebotBtn').addEventListener('click', ()=>{
   const subject = `Ihr Angebot${nummer && nummer!=='wird beim Speichern vergeben' ? ' '+nummer : ''}${q.jobName ? ' – '+q.jobName : ''}`;
   const anrede = q.kunde.name ? `Hallo ${q.kunde.name.split(' ')[0]},` : 'Hallo,';
   const mengeSuffix = q.einheitGesamt ? ` (${q.sumStueckzahl} ${q.einheitGesamt})` : '';
-  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} €${mengeSuffix}.\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firma.name ? '\n'+firma.name : ''}`;
+  const firmaSignatur = firma.anzeigename || firma.name;
+  const body = `${anrede}\n\nanbei unser Angebot über ${fmt(q.gesamt)} €${mengeSuffix}.\n\nBitte die soeben heruntergeladene Datei „${filename}“ dieser E-Mail noch manuell anhängen – aus Sicherheitsgründen können Browser Anhänge nicht automatisch beifügen.\n\nViele Grüße${firmaSignatur ? '\n'+firmaSignatur : ''}`;
   window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 });
 
@@ -2040,7 +2168,17 @@ function loadAngebotInForm(a){
   $('#extraDiscount').value = a.extraDiscount;
   $('#express').checked = !!a.express;
   $('#expressPct').value = a.expressPct || allgemein.expressPct;
-  $('#versand').value = a.versand || 0;
+  if(a.versandartId && (a.versandartId==='custom' || versandarten.some(v=>v.id===a.versandartId))){
+    $('#versandart').value = a.versandartId;
+  } else if(a.versand>0){
+    // Ältere Angebote (vor Einführung der Versandarten) oder eine inzwischen gelöschte Versandart:
+    // als manuellen Betrag mit dem archivierten Wert wiederherstellen
+    $('#versandart').value = 'custom';
+  } else {
+    $('#versandart').value = '';
+  }
+  toggleVersandManuell();
+  $('#versandManuell').value = a.versand || 0;
   $('#einleitungstext').value = a.einleitungstext || '';
   $('#schlusstext').value = a.schlusstext || '';
   const k = a.kunde || {};
@@ -2166,6 +2304,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
     express: q.expressOn,
     expressPct: q.expressPct,
     versand: q.versandBetrag,
+    versandartId: q.versandartId,
     einleitungstext: q.einleitungstext,
     schlusstext: q.schlusstext,
     positionen: JSON.parse(JSON.stringify(positionen)),
@@ -2185,7 +2324,7 @@ $('#saveAngebotBtn').addEventListener('click', ()=>{
 $('#exportBackupBtn').addEventListener('click', ()=>{
   const backup = {
     exportiertAm: new Date().toISOString(),
-    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, kunden, kundenCounter, vorlagen
+    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, versandarten, kunden, kundenCounter, vorlagen
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -2204,7 +2343,7 @@ $('#backupFile').addEventListener('change', async e=>{
   try{
     const text = await file.text();
     const data = JSON.parse(text);
-    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
+    if(!confirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Versandarten, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).')) return;
 
     if(data.firma) firma = Object.assign({}, firma, data.firma);
     if(Array.isArray(data.filamente)) filamente = data.filamente;
@@ -2213,15 +2352,16 @@ $('#backupFile').addEventListener('change', async e=>{
     if(data.materialgruppen) materialgruppen = data.materialgruppen;
     if(Array.isArray(data.zubehoer)) zubehoer = data.zubehoer;
     if(Array.isArray(data.drucker) && data.drucker.length) drucker = data.drucker;
+    if(Array.isArray(data.versandarten)) versandarten = data.versandarten;
     if(Array.isArray(data.kunden)) kunden = data.kunden;
     if(typeof data.kundenCounter === 'number') kundenCounter = data.kundenCounter;
     if(Array.isArray(data.vorlagen)) vorlagen = data.vorlagen;
     // Kunden aus älteren Backups ohne Kundennummer nachträglich durchnummerieren
     kunden.forEach(k=>{ if(!k.nummer) k.nummer = nextKundenNummer(); });
 
-    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveKunden(), saveKundenCounter(), saveVorlagen()]);
+    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveVersandarten(), saveKunden(), saveKundenCounter(), saveVorlagen()]);
     renderFirmaInputs(); renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
-    renderDruckerList(); renderZubehoerList(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
+    renderDruckerList(); renderZubehoerList(); renderVersandartenList(); renderVersandartSelects(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){
     msg.innerHTML = `<div class="import-msg warn">Backup konnte nicht gelesen werden: ${err.message}</div>`;
