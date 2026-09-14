@@ -8,7 +8,7 @@ Keine Installation, kein Backend, kein Build-Schritt – reines HTML/CSS/JavaScr
 
 - **Stammdaten**
   - Firmenprofil (Absender): Anzeigename (umgangssprachlicher Name, z. B. Fantasiename) und rechtlicher Name getrennt erfassbar, dazu Kontakt, Adresse, USt-ID/Steuernummer, IBAN/BIC und Logo – der Anzeigename erscheint groß im PDF-Briefkopf und als E-Mail-Signatur, der rechtliche Name (falls abweichend) klein darunter im Impressum-Block; das Logo wird beim Hochladen automatisch verkleinert
-  - Beliebig viele Filamente (Material + Farbe + Preis pro kg)
+  - Beliebig viele Filamente (Material + Farbe + Preis pro kg) – die Materialauswahl umfasst ~66 Sorten in 9 Gruppen (PLA, PETG, ABS/ASA, PC, PA/Nylon, PET, TPU/TPE, Support, Spezial), übersichtlich als Dropdown-Kategorien
   - Beliebig viele Drucker-Profile (Name, Leistung in Watt, AMS-fähig, Anschaffungspreis + erwartete Lebensdauer) – jede Position wird einem Drucker zugeordnet; nur AMS-fähige Drucker erlauben Multicolor ohne manuellen Filamentwechsel; aus Anschaffungspreis/Lebensdauer wird automatisch ein zusätzlicher **Abschreibungssatz (€/Std.)** berechnet, der wie die Wartungskosten in jede Kalkulation einfließt
   - Zubehör/Hardware (z. B. Gewindeeinsätze, Schrauben, Muttern) mit Preis pro Stück – wird als Kostenzeile innerhalb einer Position erfasst, nicht als eigene Position
   - Kundenliste mit automatisch vergebener **Kundennummer** (K-0001, K-0002, …), Name, Firma, Adresse, E-Mail, Telefon, USt-ID, Kundengruppe, individuellem Standard-Rabatt (%), Zahlungs-/Lieferbedingungen und internen Notizen – wird beim Speichern eines Angebots automatisch befüllt
