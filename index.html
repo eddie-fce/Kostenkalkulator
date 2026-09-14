@@ -21,7 +21,8 @@
     <div class="tab active" data-view="kalk"><span class="n">01</span>Kalkulation</div>
     <div class="tab" data-view="archiv"><span class="n">02</span>Archiv</div>
     <div class="tab" data-view="kunden"><span class="n">03</span>Kunden</div>
-    <div class="tab" data-view="stamm"><span class="n">04</span>Stammdaten</div>
+    <div class="tab" data-view="katalog"><span class="n">04</span>Filamentkatalog</div>
+    <div class="tab" data-view="stamm"><span class="n">05</span>Stammdaten</div>
   </div>
 
   <!-- ===================== KALKULATION ===================== -->
@@ -211,6 +212,15 @@
     </div>
   </div>
 
+  <!-- ===================== FILAMENTKATALOG ===================== -->
+  <div class="view" id="view-katalog">
+    <div class="panel">
+      <h2>Filamentkatalog</h2>
+      <p class="hint">Technische Eigenschaften je Material (Vorlage/Richtwerte – frei änderbar). Die Verschleißklasse (A–F) bestimmt den Wartungssatz je Druckstunde, siehe „Verschleißklassen“ in den Stammdaten. Material anklicken zum Aufklappen.</p>
+      <div id="katalogList"></div>
+    </div>
+  </div>
+
   <!-- ===================== STAMMDATEN ===================== -->
   <div class="view" id="view-stamm">
 
@@ -339,9 +349,9 @@
     </div>
 
     <div class="panel">
-      <h2>Wartungskosten je Materialgruppe</h2>
-      <p class="hint">Fester Wartungssatz je Druckstunde, direkt abgestuft nach Materialgruppe (deckt Nozzle, Druckplatte, Hotend, Schläuche etc. ab – höhere Sätze bei ABS/ASA wegen höherer Drucktemperatur, bei CF/GF wegen stärkerer Nozzle-Abnutzung). Jedes Filament in den Stammdaten wird automatisch anhand seines Materials der passenden Gruppe zugeordnet; der Satz dieser Gruppe fließt direkt und vollständig als Wartungskosten in die Kalkulation ein.</p>
-      <div id="groupList"></div>
+      <h2>Verschleißklassen (A–F)</h2>
+      <p class="hint">Fester Wartungssatz je Druckstunde, abgestuft nach Verschleißklasse A (gering) bis F (sehr hoch) – deckt Nozzle, Druckplatte, Hotend, Schläuche etc. ab. Jedes Material im <b>Filamentkatalog</b> ist einer dieser Klassen zugeordnet; der Satz der Klasse fließt direkt und vollständig als Wartungskosten in die Kalkulation ein.</p>
+      <div id="klassenList"></div>
     </div>
 
     <div class="panel">

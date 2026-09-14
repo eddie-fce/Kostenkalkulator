@@ -102,48 +102,12 @@ const MATERIAL_FAMILIES = [
 ];
 const MATERIALS = MATERIAL_FAMILIES.flatMap(f=>f.items);
 
-// Sinnvolle Standard-Verschleißzuschläge (€ je Druckstunde), abgestuft nach Materialkategorie.
-// Wird beim Anlegen/Ändern eines Filaments automatisch vorgeschlagen, danach frei anpassbar.
-// Gruppierung der Materialien für die Wartungskosten je Materialgruppe (Stammdaten).
-// Jede konkrete Materialauswahl wird automatisch einer dieser 6 Gruppen zugeordnet – faserverstärkte
-// Sorten (-CF/-GF sowie abrasive Spezialfüllungen wie Glow/Metal/Conductive/ESD) landen in "CF/GF",
-// da sie unabhängig vom Basispolymer einen gehärteten Nozzle und mehr Verschleiß verursachen.
-const GROUP_KEYS = ["PLA","PETG","TPU","ASA/ABS","PC/PA","CF/GF"];
-const MATERIAL_TO_GROUP = {
-  "PLA Standard":"PLA", "PLA Matte":"PLA", "PLA Silk":"PLA", "PLA HF":"PLA", "PLA Tough":"PLA",
-  "PLA-CF":"CF/GF", "PLA-GF":"CF/GF", "PLA Wood":"PLA", "PLA Marble":"PLA",
-  "PLA Glow":"CF/GF", "PLA Metal / Glitter / Spezial":"CF/GF",
-
-  "PETG Standard":"PETG", "PETG HF":"PETG", "PETG Transparent":"PETG", "PETG Recycled":"PETG",
-  "PETG-CF":"CF/GF", "PETG-GF":"CF/GF",
-
-  "ABS":"ASA/ABS", "ABS-ESD":"ASA/ABS", "ASA":"ASA/ABS", "ASA-ESD":"ASA/ABS",
-  "ABS-GF":"CF/GF", "ASA-CF":"CF/GF", "ASA-GF":"CF/GF",
-
-  "PC":"PC/PA", "PC-ABS":"PC/PA", "PC-FR":"PC/PA",
-  "PC-CF":"CF/GF", "PC-GF":"CF/GF",
-
-  "PA / Nylon":"PC/PA", "PA6":"PC/PA", "PA12":"PC/PA",
-  "PA-CF":"CF/GF", "PA6-CF":"CF/GF", "PA12-CF":"CF/GF", "PAHT-CF":"CF/GF",
-  "PA6-GF":"CF/GF", "PA12-GF":"CF/GF", "PPA-CF":"CF/GF", "PPA-GF":"CF/GF",
-  "PPS-CF":"CF/GF", "PPS-GF":"CF/GF",
-
-  "PET":"PETG", "PET Transparent":"PETG", "PET-CF":"CF/GF", "PET-GF":"CF/GF",
-
-  "TPU 95A":"TPU", "TPU 95A HF":"TPU", "TPU 90A":"TPU", "TPU 85A":"TPU", "TPE":"TPU",
-  "TPU-CF":"CF/GF", "TPE-CF":"CF/GF",
-
-  "PVA":"PLA", "BVOH":"PLA", "Support PLA/PETG":"PLA", "Support PLA":"PLA",
-  "Support ABS":"PLA", "Support PA/PET":"PLA", "HIPS":"PLA",
-
-  "ESD":"CF/GF", "FR / Flammhemmend":"PC/PA", "Conductive":"CF/GF",
-  "Antibacterial":"PLA", "Recycled":"PETG", "Bio-based":"PLA",
-
-  // Altbezeichnungen aus früheren Versionen – nur für bereits gespeicherte Filamente, nicht mehr im Dropdown
-  "PA (Nylon)":"PC/PA", "Sonstiges":"PC/PA"
-};
-// Sinnvolle Standard-€/h je Gruppe – dies ist der VOLLSTÄNDIGE Wartungssatz (kein Zuschlag mehr), danach frei anpassbar
-const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "PC/PA":0.45, "CF/GF":0.70 };
+// Verschleißklassen A–F: fester Wartungssatz (€/Druckstunde) je Klasse, jedes Material im
+// Filamentkatalog wird genau einer Klasse zugeordnet. Ersetzt die frühere Gruppierung nach
+// Materialfamilie – Verschleiß hängt stärker von Faserfüllung/Drucktemperatur als von der
+// Polymerfamilie allein ab, daher die direkte Klassenzuordnung je Material im Filamentkatalog.
+const VERSCHLEISS_KLASSEN = ["A","B","C","D","E","F"];
+const VERSCHLEISS_KLASSEN_DEFAULTS = { A:1.00, B:1.05, C:1.10, D:1.20, E:1.40, F:1.60 };
 
 // Grobe Dichte-Richtwerte (g/cm³) je Material, nur für die Sofortschätzung aus STL/3MF (ohne Slicing) genutzt.
 // Färb-/Oberflächenvarianten (Matte, Silk, Transparent, …) übernehmen die Dichte des Basispolymers;
@@ -176,13 +140,108 @@ const MATERIAL_DENSITY = {
   "PA (Nylon)":1.14, "Sonstiges":1.24
 };
 
-function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
+// Filamentkatalog: technische Eigenschaften je Material (Vorlage/Richtwerte – im Tab "Filamentkatalog"
+// frei änderbar). "klasse" bestimmt den Wartungssatz (siehe VERSCHLEISS_KLASSEN_DEFAULTS oben).
+// amsGeeignet/p1sGeeignet: "Ja" | "Nein" | "eingeschränkt" (AMS) bzw. "Ja" | "Nein" | "nur nach Prüfung" (P1S).
+const FILAMENTKATALOG_DEFAULTS = {
+  "PLA Standard": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Einsteigerfreundlich, kaum Anforderungen."},
+  "PLA Matte": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Mattes Finish, Drucktemperatur ggf. leicht höher als Standard-PLA."},
+  "PLA Silk": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Seidenglanz-Optik, für besten Glanz oft etwas langsamer drucken."},
+  "PLA HF": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"High-Flow-Variante für höhere Druckgeschwindigkeiten."},
+  "PLA Tough": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Schlagzäher als Standard-PLA, ähnliche Druckparameter."},
+  "PLA-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:false, hinweise:"Carbonfaser-verstärkt, mattes Finish, spürbar steifer."},
+  "PLA-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:false, hinweise:"Glasfaser-verstärkt, ähnlich abrasiv wie PLA-CF."},
+  "PLA Wood": {klasse:"B", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Enthält echten Holzanteil, Düse ≥0,4 mm empfohlen."},
+  "PLA Marble": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Mineralische Pigmentierung für Marmor-Optik."},
+  "PLA Glow": {klasse:"B", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:false, hinweise:"Leuchtpigmente können Nozzle-Verschleiß leicht erhöhen."},
+  "PLA Metal / Glitter / Spezial": {klasse:"B", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:false, hinweise:"Je nach Produkt unterschiedlich abrasiv – Datenblatt prüfen."},
+
+  "PETG Standard": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Zäher als PLA, neigt zu Stringing."},
+  "PETG HF": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"High-Flow-Variante für höhere Druckgeschwindigkeiten."},
+  "PETG-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärkt, sehr steif."},
+  "PETG-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärkt."},
+  "PETG Transparent": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Für klare Optik langsamer und mit Vorsicht drucken."},
+  "PETG Recycled": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Recyclingmaterial, Eigenschaften je Charge/Hersteller schwankend."},
+
+  "ABS": {klasse:"B", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Warpt ohne beheizten Bauraum, geschlossenes Gehäuse empfohlen."},
+  "ABS-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärkt, steifer und formstabiler als Standard-ABS."},
+  "ABS-ESD": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Elektrostatisch ableitfähig, für ESD-Schutzanwendungen."},
+  "ASA": {klasse:"B", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"UV-beständiger als ABS, für Außeneinsatz geeignet."},
+  "ASA-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärkt."},
+  "ASA-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärkt."},
+  "ASA-ESD": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Elektrostatisch ableitfähig."},
+
+  "PC": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Sehr schlagzäh und hitzebeständig, hohe Drucktemperatur nötig."},
+  "PC-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärkt, sehr steif."},
+  "PC-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärkt."},
+  "PC-ABS": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Blend aus PC und ABS, guter Kompromiss aus Zähigkeit und Druckbarkeit."},
+  "PC-FR": {klasse:"D", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"nur nach Prüfung", trocknung:true, hinweise:"Flammhemmend, höhere Drucktemperatur, für sicherheitsrelevante Anwendungen."},
+
+  "PA / Nylon": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Sehr feuchtigkeitsempfindlich, unbedingt trocken lagern/drucken."},
+  "PA6": {klasse:"D", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"nur nach Prüfung", trocknung:true, hinweise:"Höhere Drucktemperatur und Schwindung als Standard-Nylon."},
+  "PA12": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Geringere Feuchtigkeitsaufnahme als PA6, etwas einfacher zu verarbeiten."},
+  "PA-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärkt, sehr steif und leicht."},
+  "PA6-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärktes PA6."},
+  "PA12-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärktes PA12."},
+  "PAHT-CF": {klasse:"F", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"nur nach Prüfung / meist nicht empfohlen", trocknung:true, hinweise:"Hochtemperatur-Nylon mit Carbonfaser – oft außerhalb der P1S-Einsatzgrenzen (Düsentemperatur/Kammer)."},
+  "PA6-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärktes PA6."},
+  "PA12-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärktes PA12."},
+  "PPA-CF": {klasse:"F", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"nur nach Prüfung / meist nicht empfohlen", trocknung:true, hinweise:"Hochleistungs-Polyphthalamid, sehr hohe Drucktemperatur – Datenblatt vor Einsatz prüfen."},
+  "PPA-GF": {klasse:"F", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"nur nach Prüfung / meist nicht empfohlen", trocknung:true, hinweise:"Hochleistungs-Polyphthalamid, glasfaserverstärkt."},
+  "PPS-CF": {klasse:"F", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"nur nach Prüfung / meist nicht empfohlen", trocknung:true, hinweise:"Sehr hohe Drucktemperatur (>300 °C), i. d. R. außerhalb der P1S-Spezifikation."},
+  "PPS-GF": {klasse:"F", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"nur nach Prüfung / meist nicht empfohlen", trocknung:true, hinweise:"Sehr hohe Drucktemperatur, i. d. R. außerhalb der P1S-Spezifikation."},
+
+  "PET": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Ähnliche Eigenschaften wie PETG, weniger verbreitet."},
+  "PET-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärkt."},
+  "PET-GF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Glasfaser-verstärkt."},
+  "PET Transparent": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Für klare/transparente Optik."},
+
+  "TPU 95A": {klasse:"B", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Flexibel, aber noch vergleichsweise gut förderbar."},
+  "TPU 95A HF": {klasse:"B", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"High-Flow-Variante für höhere Druckgeschwindigkeiten."},
+  "TPU 90A": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Nein", p1sGeeignet:"Ja, Direktantrieb empfohlen", trocknung:true, hinweise:"Weicher als 95A, Direct-Drive-Extruder empfohlen."},
+  "TPU 85A": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Nein", p1sGeeignet:"Ja, Direktantrieb empfohlen", trocknung:true, hinweise:"Sehr weich, anspruchsvoll in der Förderung."},
+  "TPU-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"Ja, mit gehärteter Düse (Direktantrieb empfohlen)", trocknung:true, hinweise:"Carbonfaser-verstärktes TPU, Flexibilität kombiniert mit Faserverschleiß."},
+  "TPE": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Nein", p1sGeeignet:"Ja, Direktantrieb empfohlen", trocknung:true, hinweise:"Sehr flexibel, ähnlich anspruchsvoll wie TPU 85A."},
+  "TPE-CF": {klasse:"E", abrasiv:true, gehaerteteDuese:true, amsGeeignet:"Nein", p1sGeeignet:"Ja, mit gehärteter Düse", trocknung:true, hinweise:"Carbonfaser-verstärktes TPE."},
+
+  "PVA": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Wasserlöslich, extrem feuchtigkeitsempfindlich – trocken lagern."},
+  "BVOH": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Wasserlöslich wie PVA, schneller löslich und etwas weniger feuchtigkeitsempfindlich."},
+  "Support PLA/PETG": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Mechanisch entfernbares Stützmaterial für PLA/PETG."},
+  "Support PLA": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Mechanisch entfernbares Stützmaterial für PLA."},
+  "Support ABS": {klasse:"B", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Stützmaterial für ABS/ASA, ähnliche Druckbedingungen wie ABS."},
+  "Support PA/PET": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Stützmaterial für technische Filamente wie PA/PET."},
+  "HIPS": {klasse:"B", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Löslich in Limonen, häufig als Stützmaterial für ABS."},
+
+  "ESD": {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Elektrostatisch ableitfähig, Basispolymer je nach Produkt unterschiedlich – Datenblatt prüfen."},
+  "FR / Flammhemmend": {klasse:"D", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"nur nach Prüfung", trocknung:true, hinweise:"Flammhemmende Additive, für sicherheitsrelevante Bauteile – Zertifizierung/Datenblatt prüfen."},
+  "Conductive": {klasse:"D", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"Ja", trocknung:true, hinweise:"Elektrisch leitfähig, Basispolymer je nach Produkt unterschiedlich."},
+  "Antibacterial": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Meist PLA-basiert mit antibakteriellem Additiv – Basispolymer laut Datenblatt prüfen."},
+  "Recycled": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:true, hinweise:"Eigenschaften je nach Ausgangsmaterial/Hersteller unterschiedlich – Datenblatt prüfen."},
+  "Bio-based": {klasse:"A", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"Ja", p1sGeeignet:"Ja", trocknung:false, hinweise:"Meist PLA-nahes Basispolymer aus nachwachsenden Rohstoffen."}
+};
+const FILAMENTKATALOG_FALLBACK = {klasse:"C", abrasiv:false, gehaerteteDuese:false, amsGeeignet:"eingeschränkt", p1sGeeignet:"nur nach Prüfung", trocknung:false, hinweise:""};
+
+function familieOf(material){
+  const fam = MATERIAL_FAMILIES.find(f=>f.items.includes(material));
+  return fam ? fam.label : '';
+}
+function klasseOf(material){
+  const entry = filamentkatalog[material];
+  if(entry && entry.klasse) return entry.klasse;
+  const def = FILAMENTKATALOG_DEFAULTS[material];
+  return (def && def.klasse) || FILAMENTKATALOG_FALLBACK.klasse;
+}
+function wartungsSatzFuer(material){
+  const klasse = klasseOf(material);
+  return verschleissklassen[klasse] ?? VERSCHLEISS_KLASSEN_DEFAULTS[klasse] ?? 0;
+}
 
 let filamente = [];              // [{id, material, farbe, preis, farbHex}]
 let firma = { anzeigename:'', name:'', ansprechpartner:'', adresse:'', telefon:'', email:'', website:'', steuernummer:'', ustId:'', iban:'', bic:'', logoDataUrl:'', logoW:0, logoH:0, standardEinleitung:'', standardSchluss:'' };
 let allgemein = { strompreis:0.32, leistung:150, arbeit:20, amsRuestMin:10, ausschussPct:5, rundung:0.10, kleinunternehmer:true, mwst:19, expressPct:25, stdProTag:16, pufferTage:2, standardVersandartId:'', infillEstimatePct:20, volumenrateMm3S:15 };
 let mengenrabatt = [];           // [{id, abStueck, rabatt}]
-let materialgruppen = {};        // {"PLA": 0.30, "ASA/ABS": 0.45, ...} – vollständiger Wartungssatz €/h je Materialgruppe
+let verschleissklassen = {};     // {"A": 1.00, "B": 1.05, ...} – vollständiger Wartungssatz €/h je Verschleißklasse
+let filamentkatalog = {};        // {"PLA Standard": {klasse, abrasiv, gehaerteteDuese, amsGeeignet, p1sGeeignet, trocknung, hinweise}, ...}
 let zubehoer = [];               // [{id, name, preis}] – Zubehör/Hardware, Preis pro Stück
 let drucker = [];                // [{id, name, leistung, amsFaehig}]
 let versandarten = [];            // [{id, name, preis}] – Versandarten/Paketgrößen, Vorlage: DHL-Paketklassen
@@ -216,11 +275,20 @@ async function loadData(){
     mengenrabatt = t ? JSON.parse(t.value) : [];
   }catch(e){ mengenrabatt = []; }
   try{
-    const mg = await storage.get('materialgruppen', false);
-    materialgruppen = mg ? JSON.parse(mg.value) : {};
-  }catch(e){ materialgruppen = {}; }
-  // Fehlende Gruppen (z. B. bei erstem Start oder neuer Version) mit sinnvollen Defaults auffüllen
-  GROUP_KEYS.forEach(g=>{ if(materialgruppen[g] === undefined) materialgruppen[g] = GROUP_DEFAULTS[g]; });
+    const vk = await storage.get('verschleissklassen', false);
+    verschleissklassen = vk ? JSON.parse(vk.value) : {};
+  }catch(e){ verschleissklassen = {}; }
+  // Fehlende Klassen (erster Start oder neue Version) mit den Standardsätzen auffüllen
+  VERSCHLEISS_KLASSEN.forEach(k=>{ if(verschleissklassen[k] === undefined) verschleissklassen[k] = VERSCHLEISS_KLASSEN_DEFAULTS[k]; });
+  try{
+    const fk = await storage.get('filamentkatalog', false);
+    filamentkatalog = fk ? JSON.parse(fk.value) : {};
+  }catch(e){ filamentkatalog = {}; }
+  // Für jedes bekannte Material einen Katalogeintrag sicherstellen (auch nach künftigen Updates
+  // mit neuen Materialien) – bereits vom Nutzer geänderte Einträge bleiben unangetastet.
+  MATERIALS.forEach(m=>{
+    if(!filamentkatalog[m]) filamentkatalog[m] = Object.assign({}, FILAMENTKATALOG_DEFAULTS[m] || FILAMENTKATALOG_FALLBACK);
+  });
   try{
     const z = await storage.get('zubehoer', false);
     zubehoer = z ? JSON.parse(z.value) : [];
@@ -301,7 +369,8 @@ async function loadData(){
   renderVorlageSelect();
   renderGeneralInputs();
   renderTierList();
-  renderMaterialGroups();
+  renderVerschleissklassen();
+  renderFilamentkatalog();
   renderPositionen();
   renderArchiv();
   updateTierHint();
@@ -329,8 +398,12 @@ async function saveTiers(){
   try{ await storage.set('mengenrabatt', JSON.stringify(mengenrabatt), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
-async function saveMaterialGroups(){
-  try{ await storage.set('materialgruppen', JSON.stringify(materialgruppen), false); }
+async function saveVerschleissklassen(){
+  try{ await storage.set('verschleissklassen', JSON.stringify(verschleissklassen), false); }
+  catch(e){ console.error('Speichern fehlgeschlagen', e); }
+}
+async function saveFilamentkatalog(){
+  try{ await storage.set('filamentkatalog', JSON.stringify(filamentkatalog), false); }
   catch(e){ console.error('Speichern fehlgeschlagen', e); }
 }
 async function saveZubehoer(){
@@ -480,8 +553,8 @@ function renderFilamentList(){
   filamente.forEach(f=>{
     const row = document.createElement('div');
     row.className = 'fil-row';
-    const group = groupOf(f.material);
-    const rate = materialgruppen[group] ?? GROUP_DEFAULTS[group] ?? 0;
+    const klasse = klasseOf(f.material);
+    const rate = wartungsSatzFuer(f.material);
     row.innerHTML = `
       <span class="swatch" style="background:${f.farbHex||guessHex(f.farbe)}"></span>
       <div class="field">
@@ -499,8 +572,8 @@ function renderFilamentList(){
         <input data-id="${f.id}" data-field="preis" type="number" min="0" step="0.5" value="${f.preis||0}">
       </div>
       <div class="field">
-        <label title="Wird über die Materialgruppe unten festgelegt">Wartung/Std.</label>
-        <span class="tier-tag" title="Gruppe: ${group}, bearbeitbar unter „Wartungskosten je Materialgruppe“">${group} · €${fmt(rate)}</span>
+        <label title="Klasse wird im Filamentkatalog festgelegt, der €/h-Satz je Klasse unter „Verschleißklassen“">Wartung/Std.</label>
+        <span class="tier-tag" title="Verschleißklasse ${klasse}, bearbeitbar im Filamentkatalog bzw. unter „Verschleißklassen“">Klasse ${klasse} · €${fmt(rate)}</span>
       </div>
       <button class="icon-btn" data-del="${f.id}" title="Filament löschen">✕</button>
     `;
@@ -627,6 +700,105 @@ $('#addDruckerBtn').addEventListener('click', ()=>{
   renderDruckerList();
   renderPositionen();
 });
+
+// ---------- Filamentkatalog (eigener Tab): technische Eigenschaften je Material ----------
+let filamentkatalogOpen = new Set(); // aufgeklappte Materialien (nur zur Laufzeit)
+const AMS_OPTIONEN = ["Ja","eingeschränkt","Nein"];
+
+function renderFilamentkatalog(){
+  const box = $('#katalogList');
+  box.innerHTML = '';
+
+  MATERIAL_FAMILIES.forEach(fam=>{
+    const section = document.createElement('div');
+    section.className = 'slot-title';
+    section.style.marginTop = '18px';
+    section.textContent = fam.label.toUpperCase();
+    box.appendChild(section);
+
+    fam.items.forEach(m=>{
+      const entry = filamentkatalog[m] || Object.assign({}, FILAMENTKATALOG_DEFAULTS[m] || FILAMENTKATALOG_FALLBACK);
+      const rate = wartungsSatzFuer(m);
+      const row = document.createElement('div');
+      row.className = 'kv-row' + (filamentkatalogOpen.has(m) ? ' open' : '');
+      row.innerHTML = `
+        <div class="kv-head" data-kattoggle="${m}">
+          <div><span class="kv-name">${m}</span></div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="tier-tag">Klasse ${entry.klasse} · €${fmt(rate)}/Std.</span>
+            <span class="kv-chevron">▶</span>
+          </div>
+        </div>
+        <div class="kv-body">
+          <div class="row g3">
+            <div class="field">
+              <label>Verschleißklasse</label>
+              <select data-kat="${m}" data-katfield="klasse">
+                ${VERSCHLEISS_KLASSEN.map(k=>`<option value="${k}" ${k===entry.klasse?'selected':''}>Klasse ${k} (€${fmt(verschleissklassen[k] ?? VERSCHLEISS_KLASSEN_DEFAULTS[k] ?? 0)}/Std.)</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>AMS geeignet</label>
+              <select data-kat="${m}" data-katfield="amsGeeignet">
+                ${AMS_OPTIONEN.map(v=>`<option value="${v}" ${v===entry.amsGeeignet?'selected':''}>${v}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label>P1S geeignet</label>
+              <input data-kat="${m}" data-katfield="p1sGeeignet" value="${(entry.p1sGeeignet||'').replace(/"/g,'&quot;')}" placeholder="z. B. Ja / Nein / nur nach Prüfung">
+            </div>
+          </div>
+          <div class="row g3" style="margin-top:4px;">
+            <label class="chk-field">
+              <input type="checkbox" data-kat="${m}" data-katfield="abrasiv" ${entry.abrasiv?'checked':''}>
+              Abrasiv
+            </label>
+            <label class="chk-field">
+              <input type="checkbox" data-kat="${m}" data-katfield="gehaerteteDuese" ${entry.gehaerteteDuese?'checked':''}>
+              Gehärtete Düse erforderlich
+            </label>
+            <label class="chk-field">
+              <input type="checkbox" data-kat="${m}" data-katfield="trocknung" ${entry.trocknung?'checked':''}>
+              Trocknung erforderlich
+            </label>
+          </div>
+          <div class="field" style="margin-top:12px;">
+            <label>Besondere Hinweise</label>
+            <textarea data-kat="${m}" data-katfield="hinweise" rows="2">${entry.hinweise||''}</textarea>
+          </div>
+        </div>
+      `;
+      box.appendChild(row);
+    });
+  });
+
+  box.querySelectorAll('[data-kattoggle]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const m = el.dataset.kattoggle;
+      if(filamentkatalogOpen.has(m)) filamentkatalogOpen.delete(m); else filamentkatalogOpen.add(m);
+      renderFilamentkatalog();
+    });
+  });
+
+  function commit(el){
+    const m = el.dataset.kat;
+    const field = el.dataset.katfield;
+    if(!filamentkatalog[m]) filamentkatalog[m] = Object.assign({}, FILAMENTKATALOG_DEFAULTS[m] || FILAMENTKATALOG_FALLBACK);
+    filamentkatalog[m][field] = (field==='abrasiv' || field==='gehaerteteDuese' || field==='trocknung') ? el.checked : el.value;
+    saveFilamentkatalog();
+  }
+  box.querySelectorAll('[data-katfield]').forEach(el=>{
+    el.addEventListener('click', e=> e.stopPropagation());
+    if(el.tagName==='SELECT' || el.type==='checkbox'){
+      // Auswahlfelder/Checkboxen: sofort neu rendern, damit Badge/Klassenliste aktuell bleiben
+      // (kein Fokusverlust möglich, da kein Freitext-Tippen betroffen ist)
+      el.addEventListener('change', e=>{ commit(e.target); renderFilamentkatalog(); if(e.target.dataset.katfield==='klasse') renderFilamentList(); });
+    } else {
+      // Freitextfelder: nur speichern, nicht neu rendern – sonst würde jedes Zeichen den Fokus rauswerfen
+      el.addEventListener('input', e=> commit(e.target));
+    }
+  });
+}
 
 // ---------- Stammdaten: Zubehör (Gewindeeinsätze, Schrauben, Muttern, …) ----------
 function renderZubehoerList(){
@@ -1048,26 +1220,26 @@ $('#genKleinunternehmer').addEventListener('change', ()=>{
 });
 
 // ---------- Stammdaten: Wartungskosten je Materialgruppe ----------
-function renderMaterialGroups(){
-  const box = $('#groupList');
-  box.innerHTML = GROUP_KEYS.map(g => `
+function renderVerschleissklassen(){
+  const box = $('#klassenList');
+  box.innerHTML = VERSCHLEISS_KLASSEN.map(k => `
     <div class="disc-row">
       <div class="field">
-        <label>Materialgruppe</label>
-        <input value="${g}" disabled style="opacity:0.7;">
+        <label>Verschleißklasse</label>
+        <input value="Klasse ${k}" disabled style="opacity:0.7;">
       </div>
       <div class="field">
         <label>Wartung €/Std.</label>
-        <input data-group="${g}" type="number" min="0" step="0.05" value="${materialgruppen[g] ?? GROUP_DEFAULTS[g] ?? 0}">
+        <input data-klasse="${k}" type="number" min="0" step="0.05" value="${verschleissklassen[k] ?? VERSCHLEISS_KLASSEN_DEFAULTS[k] ?? 0}">
       </div>
       <span></span>
     </div>
   `).join('');
 
-  box.querySelectorAll('[data-group]').forEach(el=>{
+  box.querySelectorAll('[data-klasse]').forEach(el=>{
     el.addEventListener('input', e=>{
-      materialgruppen[e.target.dataset.group] = parseFloat(e.target.value)||0;
-      saveMaterialGroups();
+      verschleissklassen[e.target.dataset.klasse] = parseFloat(e.target.value)||0;
+      saveVerschleissklassen();
       renderFilamentList(); // Anzeige der €/h-Badges in der Filamentliste aktualisieren
     });
   });
@@ -1913,10 +2085,10 @@ function computeQuote(){
     },0);
     const leistungW = posDrucker ? (posDrucker.leistung||0) : (allgemein.leistung||0);
     const strom = (leistungW/1000) * druckzeit * allgemein.strompreis;
-    // Wartungssatz je Druckstunde: höchster Gruppenpreis der in dieser Position verwendeten Filamente
+    // Wartungssatz je Druckstunde: höchster Klassenpreis der in dieser Position verwendeten Filamente
     const wartungssatz = usedSlots.reduce((max,s)=>{
       const f = filamente.find(x=>x.id===s.filamentId);
-      const z = f ? (materialgruppen[groupOf(f.material)] ?? GROUP_DEFAULTS[groupOf(f.material)] ?? 0) : 0;
+      const z = f ? wartungsSatzFuer(f.material) : 0;
       return Math.max(max, z);
     }, 0);
     const wartung = wartungssatz * druckzeit;
@@ -2465,7 +2637,7 @@ $('#saveAngebotBtn').addEventListener('click', async ()=>{
 $('#exportBackupBtn').addEventListener('click', ()=>{
   const backup = {
     exportiertAm: new Date().toISOString(),
-    firma, filamente, allgemein, mengenrabatt, materialgruppen, zubehoer, drucker, versandarten, kunden, kundenCounter, vorlagen
+    firma, filamente, allgemein, mengenrabatt, verschleissklassen, filamentkatalog, zubehoer, drucker, versandarten, kunden, kundenCounter, vorlagen
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -2484,13 +2656,17 @@ $('#backupFile').addEventListener('change', async e=>{
   try{
     const text = await file.text();
     const data = JSON.parse(text);
-    if(!(await showConfirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Versandarten, Kunden, Vorlagen, Materialgruppen, Mengenrabatt, allgemeine Einstellungen).'))) return;
+    if(!(await showConfirm('Backup importieren? Das überschreibt deine aktuellen Stammdaten (Firmenprofil, Filamente, Drucker, Zubehör, Versandarten, Kunden, Vorlagen, Filamentkatalog/Verschleißklassen, Mengenrabatt, allgemeine Einstellungen).'))) return;
 
     if(data.firma) firma = Object.assign({}, firma, data.firma);
     if(Array.isArray(data.filamente)) filamente = data.filamente;
     if(data.allgemein) allgemein = Object.assign({}, allgemein, data.allgemein);
     if(Array.isArray(data.mengenrabatt)) mengenrabatt = data.mengenrabatt;
-    if(data.materialgruppen) materialgruppen = data.materialgruppen;
+    if(data.verschleissklassen) verschleissklassen = data.verschleissklassen;
+    if(data.filamentkatalog){
+      filamentkatalog = data.filamentkatalog;
+      MATERIALS.forEach(m=>{ if(!filamentkatalog[m]) filamentkatalog[m] = Object.assign({}, FILAMENTKATALOG_DEFAULTS[m] || FILAMENTKATALOG_FALLBACK); });
+    }
     if(Array.isArray(data.zubehoer)) zubehoer = data.zubehoer;
     if(Array.isArray(data.drucker) && data.drucker.length) drucker = data.drucker;
     if(Array.isArray(data.versandarten)) versandarten = data.versandarten;
@@ -2500,8 +2676,8 @@ $('#backupFile').addEventListener('change', async e=>{
     // Kunden aus älteren Backups ohne Kundennummer nachträglich durchnummerieren
     kunden.forEach(k=>{ if(!k.nummer) k.nummer = nextKundenNummer(); });
 
-    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveMaterialGroups(), saveZubehoer(), saveDrucker(), saveVersandarten(), saveKunden(), saveKundenCounter(), saveVorlagen()]);
-    renderFirmaInputs(); renderFilamentList(); renderGeneralInputs(); renderTierList(); renderMaterialGroups(); renderPositionen();
+    await Promise.all([saveFirma(), saveFilamente(), saveAllgemein(), saveTiers(), saveVerschleissklassen(), saveFilamentkatalog(), saveZubehoer(), saveDrucker(), saveVersandarten(), saveKunden(), saveKundenCounter(), saveVorlagen()]);
+    renderFirmaInputs(); renderFilamentList(); renderGeneralInputs(); renderTierList(); renderVerschleissklassen(); renderFilamentkatalog(); renderPositionen();
     renderDruckerList(); renderZubehoerList(); renderVersandartenList(); renderVersandartSelects(); renderKundenVerwaltung(); renderKundenDatalist(); renderVorlagenList(); renderVorlageSelect();
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){

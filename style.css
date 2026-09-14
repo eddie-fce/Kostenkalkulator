@@ -90,8 +90,8 @@ textarea{resize:vertical;font-family:'Space Grotesk',sans-serif;line-height:1.4;
 .drucker-card{border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:10px;background:var(--panel-2);}
 .drucker-card .drow-top{display:flex;justify-content:space-between;align-items:end;gap:10px;margin-bottom:10px;}
 .drucker-card .drow-top .row{flex:1;}
-.drucker-card .chk-field{display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--text);cursor:pointer;padding-bottom:9px;white-space:nowrap;}
-.drucker-card .chk-field input{width:auto;}
+.chk-field{display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--text);cursor:pointer;padding-bottom:9px;white-space:nowrap;}
+.chk-field input{width:auto;}
 
 /* Kundenverwaltung */
 .kv-row{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;background:var(--panel-2);overflow:hidden;}
