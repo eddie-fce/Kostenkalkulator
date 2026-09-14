@@ -87,28 +87,93 @@ function showConfirm(message){
   });
 }
 
-const MATERIALS = ["PLA","PETG","TPU","ABS","ASA","PC","PA (Nylon)","PVA","PLA-CF","PETG-CF","PA-CF","PET-CF","PPA-CF","Sonstiges"];
+// Materialkatalog nach Basis-Polymer gruppiert (erscheint im Filament-Dropdown als Optgroups,
+// damit trotz der vielen Sorten alles übersichtlich bleibt).
+const MATERIAL_FAMILIES = [
+  { label:"PLA", items:["PLA Standard","PLA Matte","PLA Silk","PLA HF","PLA Tough","PLA-CF","PLA-GF","PLA Wood","PLA Marble","PLA Glow","PLA Metal / Glitter / Spezial"] },
+  { label:"PETG", items:["PETG Standard","PETG HF","PETG-CF","PETG-GF","PETG Transparent","PETG Recycled"] },
+  { label:"ABS / ASA", items:["ABS","ABS-GF","ABS-ESD","ASA","ASA-CF","ASA-GF","ASA-ESD"] },
+  { label:"PC", items:["PC","PC-CF","PC-GF","PC-ABS","PC-FR"] },
+  { label:"PA / Nylon", items:["PA / Nylon","PA6","PA12","PA-CF","PA6-CF","PA12-CF","PAHT-CF","PA6-GF","PA12-GF","PPA-CF","PPA-GF","PPS-CF","PPS-GF"] },
+  { label:"PET", items:["PET","PET-CF","PET-GF","PET Transparent"] },
+  { label:"TPU / TPE", items:["TPU 95A","TPU 95A HF","TPU 90A","TPU 85A","TPU-CF","TPE","TPE-CF"] },
+  { label:"Support", items:["PVA","BVOH","Support PLA/PETG","Support PLA","Support ABS","Support PA/PET","HIPS"] },
+  { label:"Spezial", items:["ESD","FR / Flammhemmend","Conductive","Antibacterial","Recycled","Bio-based"] }
+];
+const MATERIALS = MATERIAL_FAMILIES.flatMap(f=>f.items);
 
 // Sinnvolle Standard-Verschleißzuschläge (€ je Druckstunde), abgestuft nach Materialkategorie.
 // Wird beim Anlegen/Ändern eines Filaments automatisch vorgeschlagen, danach frei anpassbar.
 // Gruppierung der Materialien für die Wartungskosten je Materialgruppe (Stammdaten).
-// Jede konkrete Materialauswahl wird automatisch einer dieser 6 Gruppen zugeordnet.
+// Jede konkrete Materialauswahl wird automatisch einer dieser 6 Gruppen zugeordnet – faserverstärkte
+// Sorten (-CF/-GF sowie abrasive Spezialfüllungen wie Glow/Metal/Conductive/ESD) landen in "CF/GF",
+// da sie unabhängig vom Basispolymer einen gehärteten Nozzle und mehr Verschleiß verursachen.
 const GROUP_KEYS = ["PLA","PETG","TPU","ASA/ABS","PC/PA","CF/GF"];
 const MATERIAL_TO_GROUP = {
-  "PLA":"PLA", "PETG":"PETG", "TPU":"TPU",
-  "ABS":"ASA/ABS", "ASA":"ASA/ABS",
-  "PC":"PC/PA", "PA (Nylon)":"PC/PA", "PVA":"PC/PA",
-  "PLA-CF":"CF/GF", "PETG-CF":"CF/GF", "PA-CF":"CF/GF", "PET-CF":"CF/GF", "PPA-CF":"CF/GF",
-  "Sonstiges":"PC/PA"
+  "PLA Standard":"PLA", "PLA Matte":"PLA", "PLA Silk":"PLA", "PLA HF":"PLA", "PLA Tough":"PLA",
+  "PLA-CF":"CF/GF", "PLA-GF":"CF/GF", "PLA Wood":"PLA", "PLA Marble":"PLA",
+  "PLA Glow":"CF/GF", "PLA Metal / Glitter / Spezial":"CF/GF",
+
+  "PETG Standard":"PETG", "PETG HF":"PETG", "PETG Transparent":"PETG", "PETG Recycled":"PETG",
+  "PETG-CF":"CF/GF", "PETG-GF":"CF/GF",
+
+  "ABS":"ASA/ABS", "ABS-ESD":"ASA/ABS", "ASA":"ASA/ABS", "ASA-ESD":"ASA/ABS",
+  "ABS-GF":"CF/GF", "ASA-CF":"CF/GF", "ASA-GF":"CF/GF",
+
+  "PC":"PC/PA", "PC-ABS":"PC/PA", "PC-FR":"PC/PA",
+  "PC-CF":"CF/GF", "PC-GF":"CF/GF",
+
+  "PA / Nylon":"PC/PA", "PA6":"PC/PA", "PA12":"PC/PA",
+  "PA-CF":"CF/GF", "PA6-CF":"CF/GF", "PA12-CF":"CF/GF", "PAHT-CF":"CF/GF",
+  "PA6-GF":"CF/GF", "PA12-GF":"CF/GF", "PPA-CF":"CF/GF", "PPA-GF":"CF/GF",
+  "PPS-CF":"CF/GF", "PPS-GF":"CF/GF",
+
+  "PET":"PETG", "PET Transparent":"PETG", "PET-CF":"CF/GF", "PET-GF":"CF/GF",
+
+  "TPU 95A":"TPU", "TPU 95A HF":"TPU", "TPU 90A":"TPU", "TPU 85A":"TPU", "TPE":"TPU",
+  "TPU-CF":"CF/GF", "TPE-CF":"CF/GF",
+
+  "PVA":"PLA", "BVOH":"PLA", "Support PLA/PETG":"PLA", "Support PLA":"PLA",
+  "Support ABS":"PLA", "Support PA/PET":"PLA", "HIPS":"PLA",
+
+  "ESD":"CF/GF", "FR / Flammhemmend":"PC/PA", "Conductive":"CF/GF",
+  "Antibacterial":"PLA", "Recycled":"PETG", "Bio-based":"PLA",
+
+  // Altbezeichnungen aus früheren Versionen – nur für bereits gespeicherte Filamente, nicht mehr im Dropdown
+  "PA (Nylon)":"PC/PA", "Sonstiges":"PC/PA"
 };
 // Sinnvolle Standard-€/h je Gruppe – dies ist der VOLLSTÄNDIGE Wartungssatz (kein Zuschlag mehr), danach frei anpassbar
 const GROUP_DEFAULTS = { "PLA":0.30, "PETG":0.30, "TPU":0.30, "ASA/ABS":0.45, "PC/PA":0.45, "CF/GF":0.70 };
 
-// Grobe Dichte-Richtwerte (g/cm³) je Material, nur für die Sofortschätzung aus STL/3MF (ohne Slicing) genutzt
+// Grobe Dichte-Richtwerte (g/cm³) je Material, nur für die Sofortschätzung aus STL/3MF (ohne Slicing) genutzt.
+// Färb-/Oberflächenvarianten (Matte, Silk, Transparent, …) übernehmen die Dichte des Basispolymers;
+// faserverstärkte/gefüllte Sorten sind spürbar dichter als ihr unverstärktes Gegenstück.
 const MATERIAL_DENSITY = {
-  "PLA":1.24, "PETG":1.27, "TPU":1.21, "ABS":1.04, "ASA":1.07, "PC":1.20,
-  "PA (Nylon)":1.14, "PVA":1.23, "PLA-CF":1.30, "PETG-CF":1.30, "PA-CF":1.20,
-  "PET-CF":1.35, "PPA-CF":1.25, "Sonstiges":1.24
+  "PLA Standard":1.24, "PLA Matte":1.24, "PLA Silk":1.24, "PLA HF":1.24, "PLA Tough":1.22,
+  "PLA-CF":1.30, "PLA-GF":1.35, "PLA Wood":1.15, "PLA Marble":1.30, "PLA Glow":1.30,
+  "PLA Metal / Glitter / Spezial":1.90,
+
+  "PETG Standard":1.27, "PETG HF":1.27, "PETG-CF":1.31, "PETG-GF":1.35,
+  "PETG Transparent":1.27, "PETG Recycled":1.27,
+
+  "ABS":1.04, "ABS-GF":1.15, "ABS-ESD":1.08, "ASA":1.07, "ASA-CF":1.15, "ASA-GF":1.18, "ASA-ESD":1.10,
+
+  "PC":1.20, "PC-CF":1.28, "PC-GF":1.35, "PC-ABS":1.13, "PC-FR":1.25,
+
+  "PA / Nylon":1.14, "PA6":1.14, "PA12":1.01, "PA-CF":1.20, "PA6-CF":1.19, "PA12-CF":1.09,
+  "PAHT-CF":1.19, "PA6-GF":1.35, "PA12-GF":1.25, "PPA-CF":1.25, "PPA-GF":1.40, "PPS-CF":1.45, "PPS-GF":1.55,
+
+  "PET":1.33, "PET-CF":1.35, "PET-GF":1.40, "PET Transparent":1.33,
+
+  "TPU 95A":1.21, "TPU 95A HF":1.21, "TPU 90A":1.20, "TPU 85A":1.19, "TPU-CF":1.25, "TPE":1.20, "TPE-CF":1.24,
+
+  "PVA":1.23, "BVOH":1.23, "Support PLA/PETG":1.24, "Support PLA":1.24,
+  "Support ABS":1.05, "Support PA/PET":1.15, "HIPS":1.04,
+
+  "ESD":1.15, "FR / Flammhemmend":1.30, "Conductive":1.20,
+  "Antibacterial":1.24, "Recycled":1.25, "Bio-based":1.24,
+
+  "PA (Nylon)":1.14, "Sonstiges":1.24
 };
 
 function groupOf(material){ return MATERIAL_TO_GROUP[material] || "PC/PA"; }
@@ -422,7 +487,7 @@ function renderFilamentList(){
       <div class="field">
         <label>Material</label>
         <select data-id="${f.id}" data-field="material">
-          ${MATERIALS.map(m=>`<option value="${m}" ${m===f.material?'selected':''}>${m}</option>`).join('')}
+          ${MATERIAL_FAMILIES.map(fam=>`<optgroup label="${fam.label}">${fam.items.map(m=>`<option value="${m}" ${m===f.material?'selected':''}>${m}</option>`).join('')}</optgroup>`).join('')}
         </select>
       </div>
       <div class="field">
