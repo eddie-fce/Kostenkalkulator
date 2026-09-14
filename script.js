@@ -1621,8 +1621,19 @@ function hexDist(a, b){
   return Math.sqrt(pa.reduce((s,v,i)=> s + (v-pb[i])**2, 0));
 }
 
+// Bambu Studio/OrcaSlicer schreiben im Sliced-File nur den kurzen Basistyp (z. B. "PLA", "PETG",
+// "ABS-CF") – unabhängig vom Filament-Hersteller. Unsere Materialnamen sind dagegen oft länger
+// ("PLA Standard", "PLA Silk", …). Erstes Wort vor Leerzeichen/Slash liefert i. d. R. genau diesen
+// Basistyp zurück ("PLA Standard"→"PLA", "PA / Nylon"→"PA", "PLA-CF" bleibt unverändert).
+function materialBaseToken(material){
+  return (material||'').split(/[\s/]+/)[0].toUpperCase();
+}
 function findFilamentByTypeColor(type, colorHex){
-  const sameType = filamente.filter(f => (f.material||'').toLowerCase() === (type||'').toLowerCase());
+  const typeNorm = (type||'').toUpperCase();
+  let sameType = filamente.filter(f => (f.material||'').toUpperCase() === typeNorm);
+  if(!sameType.length){
+    sameType = filamente.filter(f => materialBaseToken(f.material) === typeNorm);
+  }
   const pool = sameType.length ? sameType : filamente;
   if(!pool.length) return null;
   let best = null, bestDist = Infinity;
@@ -1677,11 +1688,10 @@ async function import3MF(file){
       while((fm = filRegex.exec(content)) !== null && slotIdx < 4){
         const type = fm[2], color = fm[3], usedG = parseFloat(fm[4]);
         const match = findFilamentByTypeColor(type, color);
-        if(match){
-          slots[slotIdx] = {filamentId: match.id, gramm: String(Math.round(usedG*10)/10)};
-        } else {
-          unmatched.add(`${type} ${color}`);
-        }
+        // Gramm-Menge auch ohne eindeutige Zuordnung übernehmen (Slicer kennt sie ja) – nur das
+        // Filament selbst muss der Nutzer dann manuell aus der Stammdaten-Liste auswählen.
+        slots[slotIdx] = {filamentId: match ? match.id : '', gramm: String(Math.round(usedG*10)/10)};
+        if(!match) unmatched.add(`${type} ${color}`);
         slotIdx++;
       }
 
@@ -1702,7 +1712,7 @@ async function import3MF(file){
 
     let html = `<div class="import-msg ${unmatched.size?'warn':'ok'}">${plateCount} Position(en) aus „${file.name}“ importiert (Druckzeit + Filamentverbrauch automatisch übernommen). Stückzahl und Arbeitszeit bitte noch prüfen/eintragen.`;
     if(unmatched.size){
-      html += `\nNicht zugeordnete Filamente (bitte manuell in der Position auswählen, ggf. erst in Stammdaten anlegen):\n– ${[...unmatched].join('\n– ')}`;
+      html += `\nGrammzahl wurde übernommen, aber folgende Filamente konnten keinem Eintrag in den Stammdaten zugeordnet werden – bitte in der Position manuell auswählen (ggf. erst in Stammdaten anlegen):\n– ${[...unmatched].join('\n– ')}`;
     }
     html += '</div>';
     msg.innerHTML = html;
@@ -1767,14 +1777,14 @@ async function importGcode(file){
       const colour = colours[i] || null;
       let match = colour ? findFilamentByTypeColor(type, colour) : null;
       if(!match && type){
-        match = filamente.find(f => (f.material||'').toLowerCase() === type.toLowerCase());
+        const typeNorm = type.toUpperCase();
+        match = filamente.find(f => (f.material||'').toUpperCase() === typeNorm) || filamente.find(f => materialBaseToken(f.material) === typeNorm);
         if(match) unverified.add(`${type} (Farbe nicht in Datei, bitte prüfen)`);
       }
-      if(match){
-        slots[i] = {filamentId: match.id, gramm: String(Math.round(g*10)/10)};
-      } else {
-        unmatched.add(type ? `${type}${colour?' '+colour:''}` : `Filament ${i+1} (${g} g)`);
-      }
+      // Gramm-Menge auch ohne eindeutige Zuordnung übernehmen – nur das Filament selbst muss
+      // der Nutzer dann manuell aus der Stammdaten-Liste auswählen.
+      slots[i] = {filamentId: match ? match.id : '', gramm: String(Math.round(g*10)/10)};
+      if(!match) unmatched.add(type ? `${type}${colour?' '+colour:''}` : `Filament ${i+1} (${g} g)`);
     });
 
     if(!grams.length && !druckzeitH){
@@ -1798,7 +1808,7 @@ async function importGcode(file){
 
     let html = `<div class="import-msg ${(unmatched.size||unverified.size)?'warn':'ok'}">Position aus „${file.name}“ importiert (Druckzeit: ${druckzeitH} Std.). Stückzahl und Arbeitszeit bitte noch prüfen/eintragen.`;
     if(unverified.size) html += `\nFarbe nicht in Datei angegeben, bitte in der Position prüfen:\n– ${[...unverified].join('\n– ')}`;
-    if(unmatched.size) html += `\nNicht zugeordnete Filamente (bitte manuell auswählen, ggf. erst in Stammdaten anlegen):\n– ${[...unmatched].join('\n– ')}`;
+    if(unmatched.size) html += `\nGrammzahl wurde übernommen, aber folgende Filamente konnten keinem Eintrag in den Stammdaten zugeordnet werden – bitte in der Position manuell auswählen (ggf. erst in Stammdaten anlegen):\n– ${[...unmatched].join('\n– ')}`;
     html += '</div>';
     msg.innerHTML = html;
 

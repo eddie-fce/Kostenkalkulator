@@ -57,7 +57,7 @@ Alle Stammdaten (Firmenprofil inkl. Logo, Filamente, Drucker, Zubehör, Kunden, 
 
 - In Bambu Studio/OrcaSlicer nach dem Slicen: **Datei → Exportieren → Sliced File exportieren** (`.gcode.3mf`), nicht die normale Projektdatei
 - Das Tool liest daraus automatisch Druckzeit und Filamentverbrauch (in Gramm) je Farbe/Slot aus und legt eine neue Position an
-- Filamente werden anhand von Material + Farbton mit den Stammdaten abgeglichen; nicht zuordenbare Filamente werden nach dem Import als Warnung aufgelistet und müssen manuell in der Position ausgewählt werden
+- Filamente werden anhand von Material + Farbton mit den Stammdaten abgeglichen (auch wenn der Slicer nur den kurzen Basistyp wie „PLA“ nennt, während in den Stammdaten z. B. „PLA Standard“ hinterlegt ist); nicht zuordenbare Filamente werden nach dem Import als Warnung aufgelistet und müssen manuell in der Position ausgewählt werden – die erkannte Grammzahl wird aber in jedem Fall übernommen, auch ohne automatische Zuordnung
 - **Reine (noch nicht geslicte) Projekt-3MF funktionieren nicht** – diese enthalten keine Zeit-/Verbrauchsdaten, das Tool zeigt dann einen entsprechenden Hinweis
 - Stückzahl und Arbeitszeit werden nicht aus der 3MF übernommen (nicht enthalten) und müssen nach dem Import manuell ergänzt werden
 - Benötigt eine Internetverbindung beim ersten Laden der Seite (lädt die JSZip-Bibliothek von cdnjs.cloudflare.com nach)
