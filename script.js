@@ -1429,8 +1429,8 @@ function renderPositionen(){
           <input data-pos="${pos.id}" data-pfield="name" value="${pos.name||''}" placeholder="z. B. Halterung V2">
         </div>
         <div class="field">
-          <label>Menge</label>
-          <input data-pos="${pos.id}" data-pfield="stueckzahl" type="number" min="1" step="1" value="${pos.stueckzahl}">
+          <label title="${pos._importBasis ? 'Aus Slice importiert: Druckzeit und Filamentmenge werden bei Änderung automatisch mitskaliert (bis Druckzeit/Gramm manuell angepasst werden)' : ''}">Menge${pos._importBasis ? ' 🔁' : ''}</label>
+          <input data-pos="${pos.id}" data-pfield="stueckzahl" type="number" min="1" step="1" value="${pos.stueckzahl}" title="${pos._importBasis ? 'Druckzeit/Filamentmenge werden beim Ändern automatisch mitskaliert' : ''}">
         </div>
         <div class="field">
           <label>Einheit</label>
@@ -1476,6 +1476,29 @@ function renderPositionen(){
       const field = e.target.dataset.pfield;
       pos[field] = e.target.value;
       if(field==='stueckzahl') updateTierHint();
+      // Druckzeit manuell angepasst -> automatische Mitskalierung bei Mengenänderung beenden,
+      // der Nutzer hat hier bewusst einen eigenen Wert eingetragen.
+      if(field==='druckzeit' && pos._importBasis) delete pos._importBasis;
+      refreshLivePreview();
+    });
+  });
+  // Menge geändert (z. B. eine aus dem 3MF/G-Code importierte Platte soll mehrfach gedruckt werden):
+  // Druckzeit + Filamentmenge proportional mitskalieren, solange der Nutzer sie nicht selbst überschrieben hat.
+  box.querySelectorAll('[data-pfield="stueckzahl"]').forEach(el=>{
+    el.addEventListener('change', e=>{
+      const pos = positionen.find(p=>p.id===e.target.dataset.pos);
+      const basis = pos && pos._importBasis;
+      if(!basis || !basis.stueckzahl) return;
+      const neu = parseInt(e.target.value)||1;
+      if(neu === basis.stueckzahl) return;
+      const faktor = neu / basis.stueckzahl;
+      pos.druckzeit = Math.round(basis.druckzeit * faktor * 100) / 100;
+      pos.slots.forEach((s,i)=>{
+        if(!s || !(basis.gramm[i] > 0)) return;
+        s.gramm = String(Math.round(basis.gramm[i] * faktor * 10) / 10);
+      });
+      renderPositionen();
+      updateTierHint();
       refreshLivePreview();
     });
   });
@@ -1555,6 +1578,9 @@ function renderSlotsForPosition(pos, container){
       const field = e.target.dataset.sfield;
       if(!pos.slots[i]) pos.slots[i] = {filamentId:'',gramm:''};
       pos.slots[i][field] = e.target.value;
+      // Gramm manuell angepasst -> automatische Mitskalierung bei Mengenänderung beenden,
+      // der Nutzer hat hier bewusst einen eigenen Wert eingetragen.
+      if(field==='gramm' && pos._importBasis) delete pos._importBasis;
       refreshLivePreview();
     });
   });
@@ -1702,7 +1728,11 @@ async function import3MF(file){
         stueckzahl: 1,
         druckzeit: druckzeitH,
         arbeitszeit: 0,
-        slots
+        slots,
+        // Merkt sich die aus dem Slice übernommenen Werte für 1 Druckvorgang dieser Platte. Ändert
+        // der Nutzer danach die Menge (z. B. weil er die Platte mehrfach drucken will), werden
+        // Druckzeit und Filamentmenge automatisch proportional mitskaliert (siehe stueckzahl-Change-Handler).
+        _importBasis: {stueckzahl: 1, druckzeit: druckzeitH, gramm: slots.map(s=> s ? (parseFloat(s.gramm)||0) : 0)}
       });
     }
 
@@ -1800,7 +1830,10 @@ async function importGcode(file){
       stueckzahl: 1,
       druckzeit: druckzeitH,
       arbeitszeit: 0,
-      slots
+      slots,
+      // Siehe 3MF-Import: erlaubt automatisches Mitskalieren von Druckzeit/Filamentmenge, wenn die
+      // Menge danach geändert wird (z. B. weil diese Platte mehrfach gedruckt werden soll).
+      _importBasis: {stueckzahl: 1, druckzeit: druckzeitH, gramm: slots.map(s=> s ? (parseFloat(s.gramm)||0) : 0)}
     });
     renderPositionen();
     updateTierHint();

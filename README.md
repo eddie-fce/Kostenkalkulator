@@ -59,7 +59,7 @@ Alle Stammdaten (Firmenprofil inkl. Logo, Filamente, Drucker, Zubehör, Kunden, 
 - Das Tool liest daraus automatisch Druckzeit und Filamentverbrauch (in Gramm) je Farbe/Slot aus und legt eine neue Position an
 - Filamente werden anhand von Material + Farbton mit den Stammdaten abgeglichen (auch wenn der Slicer nur den kurzen Basistyp wie „PLA“ nennt, während in den Stammdaten z. B. „PLA Standard“ hinterlegt ist); nicht zuordenbare Filamente werden nach dem Import als Warnung aufgelistet und müssen manuell in der Position ausgewählt werden – die erkannte Grammzahl wird aber in jedem Fall übernommen, auch ohne automatische Zuordnung
 - **Reine (noch nicht geslicte) Projekt-3MF funktionieren nicht** – diese enthalten keine Zeit-/Verbrauchsdaten, das Tool zeigt dann einen entsprechenden Hinweis
-- Stückzahl und Arbeitszeit werden nicht aus der 3MF übernommen (nicht enthalten) und müssen nach dem Import manuell ergänzt werden
+- Stückzahl wird zunächst auf 1 gesetzt (Anzahl Teile pro Platte ist in der Datei nicht enthalten) und Arbeitszeit muss immer manuell ergänzt werden. Wird die Stückzahl danach geändert – z. B. weil diese Platte mehrmals gedruckt werden soll – skalieren Druckzeit und Filamentmenge automatisch proportional mit (🔁-Hinweis am Mengenfeld), bis Druckzeit oder Gramm manuell angepasst werden; dann bleibt die automatische Mitskalierung für diese Position aus
 - Benötigt eine Internetverbindung beim ersten Laden der Seite (lädt die JSZip-Bibliothek von cdnjs.cloudflare.com nach)
 
 ## Sofortschätzung aus STL/3MF (ohne Slicing)
