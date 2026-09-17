@@ -1504,7 +1504,9 @@ function renderPositionen(){
       const basis = pos && pos._importBasis;
       if(!basis || !basis.stueckzahl) return;
       const neu = parseInt(e.target.value)||1;
-      if(neu === basis.stueckzahl) return;
+      // Immer neu aus der unveränderten Basis berechnen (nicht überspringen, wenn "neu" zufällig
+      // der Basis-Stückzahl entspricht – sonst würde z. B. das Zurückstellen von 2 auf die
+      // ursprüngliche Basis 1 fälschlich gar nichts mehr skalieren).
       const faktor = neu / basis.stueckzahl;
       pos.druckzeit = Math.round(basis.druckzeit * faktor * 100) / 100;
       pos.slots.forEach((s,i)=>{
