@@ -445,6 +445,20 @@ function flashSaved(sel){
   clearTimeout(flashSaved._t);
   flashSaved._t = setTimeout(()=>el.classList.remove('show'),1200);
 }
+// Kurze, tab-unabhängige Bestätigung (z. B. "Angebot geladen") – sichtbar egal welcher Tab gerade aktiv ist.
+function showToast(message){
+  let el = document.getElementById('appToast');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'appToast';
+    el.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel-2,#25272e);color:var(--text,#e9e8e4);border:1px solid var(--accent,#f2542d);border-radius:8px;padding:10px 18px;font-size:13px;z-index:99998;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.style.opacity = '1';
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>{ el.style.opacity = '0'; }, 2200);
+}
 
 // ---------- Tabs ----------
 document.querySelectorAll('.tab').forEach(tab=>{
@@ -2548,6 +2562,7 @@ function loadAngebotInForm(a){
   updateTierHint();
   refreshLivePreview();
   document.querySelector('.tab[data-view="kalk"]').click();
+  showToast(`Angebot ${a.nummer} geladen (${a.positionen.length} Position${a.positionen.length===1?'':'en'})`);
 }
 
 // Status eines Angebots inkl. automatischer "Abgelaufen"-Anzeige (offen + gültig-bis überschritten)
