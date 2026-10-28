@@ -96,13 +96,17 @@
       </div>
       <div class="row g2" style="margin-top:12px;">
         <div class="field">
-          <label>Kundentyp / Zahlungsbedingung (Pflicht für PDF-Export)</label>
+          <label>Kundentyp (wird beim Kunden gespeichert; im Zweifel Verbraucher)</label>
           <select id="kundentyp">
-            <option value="">– bitte wählen –</option>
             <option value="verbraucher">Verbraucher</option>
-            <option value="unternehmer">Unternehmer (ohne Vorkasse)</option>
-            <option value="unternehmer_vorkasse">Unternehmer (mit Vorkasse)</option>
+            <option value="unternehmer">Unternehmer</option>
           </select>
+        </div>
+        <div class="field" id="vorkasseWrap" style="display:none;">
+          <label style="display:flex; align-items:center; gap:8px; text-transform:none; font-size:13px; color:var(--text); cursor:pointer; margin-top:9px;">
+            <input type="checkbox" id="vorkasse" style="width:auto;">
+            Vorkasse erforderlich (hoher Materialeinsatz/Auftragswert, nur dieses Angebot)
+          </label>
         </div>
       </div>
       <div class="hint" id="kundeInfoHint" style="margin:10px 0 0;"></div>
@@ -480,7 +484,7 @@
 
 <div id="customDialogOverlay" class="custom-dialog-overlay" style="display:none;">
   <div class="custom-dialog">
-    <p id="customDialogMessage"></p>
+    <p id="customDialogMessage" style="white-space:pre-line;"></p>
     <div class="custom-dialog-actions">
       <button id="customDialogCancelBtn" class="ghost-btn" type="button">Abbrechen</button>
       <button id="customDialogOkBtn" class="add-btn" type="button">OK</button>
