@@ -49,6 +49,10 @@ Einfach `index.html` im Browser öffnen – funktioniert lokal per Doppelklick.
 
 Alle Stammdaten (Firmenprofil inkl. Logo, Filamente, Drucker, Zubehör, Kunden, Positionsvorlagen, allgemeine Kosten, Mengenrabatt-Stufen) werden automatisch im `localStorage` des Browsers gespeichert – lokal auf dem jeweiligen Gerät, ohne Server. Positionen einer Kalkulation werden bewusst **nicht** dauerhaft gespeichert, da sie sich pro Auftrag unterscheiden; gespeicherte Angebote landen dagegen im Archiv (inkl. Kundendaten, Liefertermin und Express-Zuschlag zum Zeitpunkt der Speicherung).
 
+### Optional: Kunden & Angebote auf dem eigenen Server
+
+Unter **Stammdaten → Server-Sync** lassen sich Kunden und Angebote (inkl. Kunden-/Angebotsnummern) auf einem eigenen Webserver mit PHP ablegen, sodass sie auf allen Geräten gleich sind. Stammdaten bleiben lokal, ohne Server-Konfiguration ändert sich nichts. Einrichtung: [`server/README.md`](server/README.md).
+
 > Hinweis: Dieselbe `script.js` erkennt automatisch, ob eine `window.storage`-API zur Verfügung steht (z. B. innerhalb von Claude-Artefakten) und nutzt sie bevorzugt; andernfalls greift der `localStorage`-Fallback. Für den Einsatz auf GitHub Pages / lokal ist immer der `localStorage`-Fallback aktiv.
 
 ## 3MF-Import

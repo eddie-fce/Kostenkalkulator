@@ -1,7 +1,7 @@
 /* Druckkalkulator – Logik
    Speicher-Adapter: nutzt window.storage, falls vorhanden (Claude-Artefakt),
    sonst localStorage (z. B. beim Ausführen als eigenständige Datei / GitHub Pages). */
-const storage = window.storage ? window.storage : {
+const baseStorage = window.storage ? window.storage : {
   async get(key){ const v = localStorage.getItem(key); return v===null ? null : {key, value:v}; },
   async set(key, value){ localStorage.setItem(key, value); return {key, value}; },
   async delete(key){ localStorage.removeItem(key); return {key, deleted:true}; },
@@ -10,6 +10,147 @@ const storage = window.storage ? window.storage : {
     return {keys};
   }
 };
+
+/* Optionaler Server-Sync (server/api.php): Nur Kunden + Angebote (und deren Zähler) liegen auf dem
+   eigenen Server, alles andere bleibt lokal. localStorage dient weiter als Cache/Offline-Fallback.
+   Konfiguration (URL + Token) steht in localStorage 'syncConfig' und wird im Reiter Stammdaten gesetzt. */
+const SYNC_KEYS = ['kunden','kundenCounter','angebote','angebotsCounter'];
+const SYNC_COUNTER_KEYS = ['kundenCounter','angebotsCounter'];
+const syncCfg = (()=>{ try{ return JSON.parse(localStorage.getItem('syncConfig')) || {}; }catch(e){ return {}; } })();
+const syncActive = !window.storage && !!(syncCfg.url && syncCfg.token);
+const sync = {rev:{}, pending:{}, timers:{}, chain:{}, lastPull:0};
+let appReady = false;
+
+function syncSetStatus(text, ok){
+  const el = document.getElementById('syncStatus');
+  if(el){ el.textContent = text; el.className = 'import-msg ' + (ok ? 'ok' : 'warn'); }
+  const sl = document.getElementById('statusline');
+  if(sl && appReady) sl.textContent = ok ? 'bereit · Sync verbunden' : 'bereit · Sync offline (lokal gespeichert)';
+}
+function syncDirtyKeys(){ try{ return JSON.parse(localStorage.getItem('syncDirty')||'[]'); }catch(e){ return []; } }
+function syncMarkDirty(key, on){
+  try{
+    const s = new Set(syncDirtyKeys());
+    on ? s.add(key) : s.delete(key);
+    localStorage.setItem('syncDirty', JSON.stringify([...s]));
+  }catch(e){ /* ohne localStorage kein Offline-Merker */ }
+}
+async function syncReq(method, query, body, keepalive){
+  const r = await fetch(`${syncCfg.url}?${query}`, {
+    method, keepalive: !!keepalive,
+    headers: {'Authorization':'Bearer '+syncCfg.token, 'Content-Type':'application/json'},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if(r.status === 409) return Object.assign({conflict:true}, await r.json());
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+// Zusammenführen bei Konflikt: Server-Stand + lokale Einträge (gleiche id: lokal gewinnt); Zähler: Maximum.
+function syncMerge(key, mineStr, theirsStr){
+  if(SYNC_COUNTER_KEYS.includes(key)) return String(Math.max(parseInt(mineStr)||0, parseInt(theirsStr)||0));
+  const parse = s => { try{ const v = JSON.parse(s); return Array.isArray(v) ? v : []; }catch(e){ return []; } };
+  const mine = parse(mineStr), theirs = parse(theirsStr);
+  const mineById = new Map(mine.map(x=>[x.id,x]));
+  const out = theirs.map(t => mineById.get(t.id) || t);
+  const known = new Set(theirs.map(t=>t.id));
+  mine.forEach(m=>{ if(!known.has(m.id)) out.push(m); });
+  return JSON.stringify(out);
+}
+// Schreibt den zuletzt gemerkten Stand eines Schlüssels zum Server (serialisiert pro Schlüssel).
+function syncPush(key, keepalive){
+  clearTimeout(sync.timers[key]); delete sync.timers[key];
+  sync.chain[key] = (sync.chain[key] || Promise.resolve()).then(async ()=>{
+    const sent = sync.pending[key];
+    if(sent === undefined) return;
+    let value = sent;
+    try{
+      let r;
+      for(let i=0; i<4; i++){
+        r = await syncReq('PUT', 'key='+key, {rev: sync.rev[key]||0, value}, keepalive && value.length < 60000);
+        if(!r.conflict) break;
+        value = syncMerge(key, value, r.value);
+        sync.rev[key] = r.rev;
+      }
+      if(r.conflict) throw new Error('Konflikt');
+      sync.rev[key] = r.rev;
+      if(value !== sent){
+        await baseStorage.set(key, value);
+        if(sync.pending[key] === sent) applyRemoteValue(key, value);
+      }
+      if(sync.pending[key] === sent){ delete sync.pending[key]; syncMarkDirty(key, false); }
+      syncSetStatus('Verbunden – Kunden & Angebote werden synchronisiert.', true);
+    }catch(e){
+      syncMarkDirty(key, true);
+      syncSetStatus('Server nicht erreichbar – Änderungen sind lokal gespeichert und werden später übertragen.', false);
+    }
+  });
+  return sync.chain[key];
+}
+// Holt den aktuellen Server-Stand (z. B. beim Zurückkehren ins Fenster oder vor dem Speichern eines Angebots).
+async function syncPull(){
+  if(!syncActive || !appReady) return;
+  try{
+    for(const k of SYNC_KEYS) if(sync.pending[k] !== undefined) await syncPush(k);
+    const r = await syncReq('GET', 'all=1');
+    sync.lastPull = Date.now();
+    for(const key of SYNC_KEYS){
+      const d = r.data && r.data[key];
+      if(!d || d.value === null || sync.pending[key] !== undefined || sync.rev[key] === d.rev) continue;
+      sync.rev[key] = d.rev;
+      await baseStorage.set(key, d.value);
+      applyRemoteValue(key, d.value);
+    }
+    syncSetStatus('Verbunden – Kunden & Angebote werden synchronisiert.', true);
+  }catch(e){
+    syncSetStatus('Server nicht erreichbar – Änderungen sind lokal gespeichert und werden später übertragen.', false);
+  }
+}
+const storage = !syncActive ? baseStorage : {
+  async get(key){
+    if(!SYNC_KEYS.includes(key)) return baseStorage.get(key);
+    const local = await baseStorage.get(key);
+    try{
+      const r = await syncReq('GET', 'key='+key);
+      sync.rev[key] = r.rev;
+      let value = r.value;
+      if(local && (value === null || (local.value !== value && syncDirtyKeys().includes(key)))){
+        // Server leer (erster Start) oder lokal offline gearbeitet: lokalen Stand einbringen
+        value = value === null ? local.value : syncMerge(key, local.value, value);
+        await baseStorage.set(key, value);
+        sync.pending[key] = value;
+        await syncPush(key);
+        return {key, value};
+      }
+      if(value === null) return null;
+      await baseStorage.set(key, value);
+      syncSetStatus('Verbunden – Kunden & Angebote werden synchronisiert.', true);
+      return {key, value};
+    }catch(e){
+      syncSetStatus('Server nicht erreichbar – es wird mit dem lokalen Stand gearbeitet.', false);
+      return local;
+    }
+  },
+  async set(key, value){
+    const res = await baseStorage.set(key, value);
+    if(SYNC_KEYS.includes(key)){
+      sync.pending[key] = value;
+      syncMarkDirty(key, true);
+      clearTimeout(sync.timers[key]);
+      sync.timers[key] = setTimeout(()=> syncPush(key), 700);
+    }
+    return res;
+  },
+  delete: (key)=> baseStorage.delete(key),
+  list: (prefix)=> baseStorage.list(prefix)
+};
+if(syncActive){
+  // Nicht geschriebene Änderungen sofort senden, wenn das Fenster verlassen wird; frischen Stand holen, wenn man zurückkommt.
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'hidden') Object.keys(sync.pending).forEach(k=> syncPush(k, true));
+    else if(Date.now() - sync.lastPull > 30000) syncPull();
+  });
+  window.addEventListener('focus', ()=>{ if(Date.now() - sync.lastPull > 30000) syncPull(); });
+}
 
 // In der Electron-App kann das Fenster nach einem nativen confirm()/alert()-Dialog den
 // Tastaturfokus verlieren, sodass sich danach nichts mehr eintippen lässt. Fenster nach
@@ -257,6 +398,18 @@ const fmt = n => n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFracti
 const uid = p => p + Date.now() + Math.floor(Math.random()*1000);
 
 // ---------- Storage ----------
+// Übernimmt einen vom Server geholten/zusammengeführten Stand in den Arbeitsspeicher und zeichnet neu.
+function applyRemoteValue(key, value){
+  try{
+    if(key === 'kunden') kunden = JSON.parse(value);
+    else if(key === 'angebote') angebote = JSON.parse(value);
+    else if(key === 'kundenCounter') kundenCounter = Math.max(kundenCounter, parseInt(value)||0);
+    else if(key === 'angebotsCounter') angebotsCounter = Math.max(angebotsCounter, parseInt(value)||0);
+  }catch(e){ return; }
+  if(!appReady) return;
+  renderArchiv(); renderKundenVerwaltung(); renderKundenDatalist();
+}
+
 async function loadData(){
   try{
     const f = await storage.get('filamente', false);
@@ -375,7 +528,8 @@ async function loadData(){
   renderArchiv();
   updateTierHint();
   refreshLivePreview();
-  $('#statusline').textContent = 'bereit';
+  appReady = true;
+  $('#statusline').textContent = syncActive ? 'bereit · Sync aktiv' : 'bereit';
 }
 
 async function saveFilamente(){
@@ -1203,7 +1357,8 @@ function renderKundenVerwaltung(){
   });
 }
 
-$('#addKundeVerwaltungBtn').addEventListener('click', ()=>{
+$('#addKundeVerwaltungBtn').addEventListener('click', async ()=>{
+  await syncPull();
   const neu = {id:uid('k'), nummer: nextKundenNummer(), name:'Neuer Kunde', firma:'', email:'', telefon:'', adresse:'', kundentyp:'verbraucher', ustId:'', gruppe:'', rabattPct:0, zahlungsbedingungen:'', lieferbedingungen:'', notizen:''};
   kunden.push(neu);
   kundenVerwaltungOpen.add(neu.id);
@@ -2758,6 +2913,7 @@ $('#saveAngebotBtn').addEventListener('click', async ()=>{
     await showAlert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
     return;
   }
+  await syncPull(); // aktuelle Zähler/Angebote vom Server, damit keine Nummer doppelt vergeben wird
   if(q.kunde.name) upsertKunde();
   const nummer = nextAngebotsNummer();
   $('#angebotsNr').value = nummer;
@@ -2838,6 +2994,32 @@ $('#backupFile').addEventListener('change', async e=>{
     msg.innerHTML = `<div class="import-msg ok">Backup vom ${new Date(data.exportiertAm||Date.now()).toLocaleString('de-DE')} erfolgreich importiert.</div>`;
   }catch(err){
     msg.innerHTML = `<div class="import-msg warn">Backup konnte nicht gelesen werden: ${err.message}</div>`;
+  }
+});
+
+// ---------- Server-Sync (Einstellungen) ----------
+$('#syncUrl').value = syncCfg.url || '';
+$('#syncToken').value = syncCfg.token || '';
+if(syncActive) syncSetStatus('Sync aktiv – verbinde …', true);
+$('#syncSaveBtn').addEventListener('click', ()=>{
+  const url = $('#syncUrl').value.trim(), token = $('#syncToken').value.trim();
+  try{
+    if(url && token) localStorage.setItem('syncConfig', JSON.stringify({url, token}));
+    else localStorage.removeItem('syncConfig');
+  }catch(e){ showAlert('Einstellung konnte nicht gespeichert werden.'); return; }
+  location.reload();
+});
+$('#syncTestBtn').addEventListener('click', async ()=>{
+  const url = $('#syncUrl').value.trim(), token = $('#syncToken').value.trim();
+  const el = $('#syncStatus');
+  try{
+    const r = await fetch(`${url}?all=1`, {headers:{'Authorization':'Bearer '+token}});
+    if(r.status === 401) throw new Error('Token falsch');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    await r.json();
+    el.textContent = 'Verbindung erfolgreich.'; el.className = 'import-msg ok';
+  }catch(e){
+    el.textContent = 'Verbindung fehlgeschlagen: ' + e.message; el.className = 'import-msg warn';
   }
 });
 
