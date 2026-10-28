@@ -1,0 +1,5 @@
+# Apache: Authorization-Header an PHP durchreichen (bei CGI/FPM sonst leer)
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+<FilesMatch "^(config\.php|config\.sample\.php)$">
+  Require all denied
+</FilesMatch>

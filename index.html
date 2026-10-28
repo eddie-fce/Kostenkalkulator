@@ -478,6 +478,26 @@
       <div id="backupMsg"></div>
     </div>
 
+    <div class="panel">
+      <h2>Server-Sync (Kunden & Angebote)</h2>
+      <p class="hint">Optional: Kunden und Angebote liegen auf dem eigenen Server und sind so auf allen Geräten gleich. Stammdaten bleiben lokal. Einrichtung: siehe <code>server/README.md</code>. Beide Felder leer lassen und speichern = Sync aus.</p>
+      <div class="row g2">
+        <div class="field">
+          <label>Server-URL (api.php)</label>
+          <input id="syncUrl" type="url" placeholder="https://eure-domain.de/kalkulator/api.php">
+        </div>
+        <div class="field">
+          <label>Token</label>
+          <input id="syncToken" type="password" autocomplete="off">
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="ghost-btn" id="syncTestBtn">Verbindung testen</button>
+        <button class="add-btn" id="syncSaveBtn">Speichern &amp; neu laden</button>
+      </div>
+      <div id="syncStatus"></div>
+    </div>
+
   </div>
 
 </div>
