@@ -28,6 +28,8 @@ if (!hash_equals($token, trim(preg_replace('/^Bearer\s+/i', '', $auth)))) out(40
 
 $dir = rtrim((string)($cfg['data_dir'] ?? __DIR__ . '/data'), '/');
 if (!is_dir($dir) && !mkdir($dir, 0750, true)) out(500, ['error' => 'data_dir nicht anlegbar']);
+// Apache: Datenordner vor direktem Abruf sperren (falls er doch im Web-Verzeichnis liegt).
+if (!is_file("$dir/.htaccess")) @file_put_contents("$dir/.htaccess", "Require all denied\n");
 
 function readKey(string $dir, string $key): array {
     $f = "$dir/$key.json";
