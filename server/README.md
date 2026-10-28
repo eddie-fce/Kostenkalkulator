@@ -6,20 +6,57 @@ Auf dem Server läuft nichts Zusätzliches: `api.php` wird nur aufgerufen, wenn 
 
 Voraussetzung: der Webserver führt PHP (≥ 8.0) aus und die Domain hat HTTPS.
 
-## Variante Coolify / Docker (VPS)
+## Variante VPS, nur privat erreichbar (Docker + Tailscale) – empfohlen
 
-Läuft der Server mit Coolify (Traefik-Proxy, kein nginx/Apache/PHP auf dem Host), wird die API als eigener kleiner Container betrieben (ca. 15–20 MB RAM):
+Die API ist **nicht aus dem Internet erreichbar**. Der Container lauscht nur auf `127.0.0.1` des Servers; Zugriff haben ausschließlich eigene Geräte über ein privates VPN ([Tailscale](https://tailscale.com), für Privatnutzung kostenlos). Es braucht keine Domain, keinen DNS-Eintrag und keinen Proxy. Ressourcenbedarf: ca. 15–20 MB RAM plus der Tailscale-Dienst.
 
-1. **DNS:** Bei der Domain einen A-Record für eine Subdomain anlegen, z. B. `kalkulator.eure-domain.de` → IP des Servers.
-2. **Coolify:** Projekt öffnen → *Add Resource* → *Public Repository* (bei privatem Repo: GitHub-App/Deploy-Key einrichten) → Repository `eddie-fce/Kostenkalkulator`, Branch `main`.
+**Auf dem Server (SSH):**
+
+1. Ordner `server/` auf den Server kopieren, z. B. `scp -r server root@SERVER:/root/kalkulator-api`
+2. Container bauen und starten (Port 8787, weil Coolify 8080/8000 belegt):
+   ```bash
+   cd /root/kalkulator-api
+   docker build -t kalkulator-api .
+   docker run -d --name kalkulator-api --restart unless-stopped \
+     -p 127.0.0.1:8787:8080 \
+     -e KALKULATOR_TOKEN="$(openssl rand -hex 24)" \
+     -v kalkulator-data:/data kalkulator-api
+   docker inspect kalkulator-api --format '{{range .Config.Env}}{{println .}}{{end}}' | grep KALKULATOR_TOKEN
+   ```
+   Die letzte Zeile zeigt das Token – notieren. Die Daten liegen im Docker-Volume `kalkulator-data`.
+3. Prüfen, dass nur lokal gelauscht wird: `ss -tlnp | grep 8787` muss `127.0.0.1:8787` zeigen (nicht `0.0.0.0`).
+4. Tailscale installieren und anmelden:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   tailscale up
+   ```
+   Den ausgegebenen Link im Browser öffnen und mit dem Tailscale-Konto anmelden (Konto per Google/Microsoft/GitHub-Login anlegen).
+5. Im [Tailscale-Admin](https://login.tailscale.com/admin/dns) unter *DNS* **MagicDNS** und **HTTPS Certificates** aktivieren (einmalig).
+6. API im privaten Netz freigeben:
+   ```bash
+   tailscale serve --bg 8787
+   ```
+   Der Befehl zeigt die Adresse, z. B. `https://be-3d-druck.tail1234.ts.net`. Sie ist nur aus dem eigenen Tailscale-Netz erreichbar.
+
+**Auf jedem Gerät** (PC/Laptop/Handy): Tailscale-App installieren und mit demselben Konto anmelden. In der Druckkalkulator-App unter *Stammdaten → Server-Sync* die Tailscale-Adresse als URL und das Token eintragen. Ist Tailscale auf dem Gerät aus, arbeitet die App lokal weiter und gleicht später ab.
+
+Alternative ohne Drittanbieter: WireGuard selbst auf dem Server betreiben; dann den Container an die WireGuard-IP statt an `127.0.0.1` binden.
+
+## Variante Coolify (öffentlich erreichbar, nur per Token geschützt)
+
+Nur wählen, wenn die API bewusst aus dem Internet erreichbar sein soll:
+
+1. **DNS:** A-Record für eine Subdomain, z. B. `kalkulator.eure-domain.de` → IP des Servers.
+2. **Coolify:** *Add Resource* → *Public Repository* → `eddie-fce/Kostenkalkulator`, Branch `main`.
 3. **Build Pack:** *Dockerfile*, **Base Directory** `/server`, **Port** `8080`.
-4. **Domain:** `https://kalkulator.eure-domain.de` (Zertifikat stellt Coolify/Traefik automatisch aus).
-5. **Environment Variables:** `KALKULATOR_TOKEN` = langes Zufalls-Token (mind. 24 Zeichen, z. B. `openssl rand -hex 24`).
-6. **Persistent Storage:** Volume mit *Destination Path* `/data` anlegen – dort liegen Kunden und Angebote. Ohne Volume gehen die Daten beim Neustart verloren!
-7. **Deploy.** Test im Browser: `https://kalkulator.eure-domain.de/` zeigt `{"error":"unauthorized"}`.
-8. In der App als URL `https://kalkulator.eure-domain.de/` und das Token eintragen.
+4. **Domain:** `https://kalkulator.eure-domain.de` (Zertifikat automatisch).
+5. **Environment Variables:** `KALKULATOR_TOKEN` = langes Zufalls-Token (mind. 24 Zeichen).
+6. **Persistent Storage:** Volume mit *Destination Path* `/data` – ohne Volume gehen die Daten beim Neustart verloren!
+7. **Deploy**, Test im Browser: `https://kalkulator.eure-domain.de/` zeigt `{"error":"unauthorized"}`.
 
-Die Schritte 1–3 unten gelten nur für klassisches Webhosting/Webserver mit PHP.
+## Variante klassisches Webhosting / Webserver mit PHP
+
+Die folgenden Schritte gelten nur dafür.
 
 ## 1. Dateien hochladen
 
