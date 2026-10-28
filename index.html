@@ -55,6 +55,15 @@
           <textarea id="schlusstext" rows="2"></textarea>
         </div>
       </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Angebotsvariante (bestimmt die Pflichthinweise im PDF)</label>
+          <select id="angebotsvariante">
+            <option value="standard">Angebot</option>
+            <option value="sonderanfertigung_shop">Angebot Sonderanfertigung Shop</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -83,6 +92,17 @@
         <div class="field">
           <label>Telefon</label>
           <input id="kundeTelefon">
+        </div>
+      </div>
+      <div class="row g2" style="margin-top:12px;">
+        <div class="field">
+          <label>Kundentyp / Zahlungsbedingung (Pflicht für PDF-Export)</label>
+          <select id="kundentyp">
+            <option value="">– bitte wählen –</option>
+            <option value="verbraucher">Verbraucher</option>
+            <option value="unternehmer">Unternehmer (ohne Vorkasse)</option>
+            <option value="unternehmer_vorkasse">Unternehmer (mit Vorkasse)</option>
+          </select>
         </div>
       </div>
       <div class="hint" id="kundeInfoHint" style="margin:10px 0 0;"></div>

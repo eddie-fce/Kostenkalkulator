@@ -2111,6 +2111,8 @@ function computeQuote(){
   }
   const einleitungstext = $('#einleitungstext').value.trim();
   const schlusstext = $('#schlusstext').value.trim();
+  const kundentyp = $('#kundentyp').value;
+  const angebotsvariante = $('#angebotsvariante').value;
 
   let materialTotal=0, stromTotal=0, wartungTotal=0, arbeitTotal=0, zubehoerTotal=0, abschreibungTotal=0, amsRuestStunden=0, amsPositionen=0;
   const posLines = [];
@@ -2207,7 +2209,7 @@ function computeQuote(){
     amsRuestStunden, amsPositionen, kostenSumme, ausschussPct: allgemein.ausschussPct||0, ausschussBetrag,
     zwischensumme, expressOn, expressPct, expressBetrag, marginPct, gewinn, tierPct, extraDiscountPct, totalDiscountPct,
     rabattBetrag, nettoGesamt, kleinunternehmer, mwstSatz, mwstBetrag, bruttoGesamt,
-    rundungsDiff, gesamt, sumStueckzahl, einheitGesamt, einleitungstext, schlusstext};
+    rundungsDiff, gesamt, sumStueckzahl, einheitGesamt, einleitungstext, schlusstext, kundentyp, angebotsvariante};
 }
 
 function buildResultHtml(q){
@@ -2347,6 +2349,26 @@ $('#exportCsvBtn').addEventListener('click', ()=>{
 });
 
 // ---------- PDF-Export (Preisangebot) ----------
+// Pflichthinweise (Wortlaut unverändert übernehmen)
+const TXT_WIDERRUF = 'Hinweis zum Widerrufsrecht: Dieses Angebot betrifft Teile, die nach Ihren Vorgaben bzw. Ihrer Datei individuell angefertigt werden. Für solche Waren besteht nach § 312g Abs. 2 Nr. 1 BGB kein Widerrufsrecht. Mit der Annahme dieses Angebots ist der Vertrag verbindlich.';
+const TXT_SONDERWUNSCH_SHOP = 'Die Anfertigung erfolgt auf Ihren besonderen Wunsch außerhalb der im Shop angebotenen Varianten.';
+const TXT_ZAHLUNG = {
+  verbraucher: 'Zahlung: Wir beginnen mit der Fertigung, sobald der Rechnungsbetrag bei uns eingegangen ist.',
+  unternehmer: 'Zahlung: Zahlungsziel 14 Tage ab Rechnungsdatum ohne Abzug.',
+  unternehmer_vorkasse: 'Zahlung: Bei diesem Auftrag ist wegen des hohen Materialeinsatzes Vorkasse erforderlich. Wir beginnen mit der Fertigung, sobald der Rechnungsbetrag bei uns eingegangen ist.'
+};
+const TXT_STEUER_19 = 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.';
+const TXT_AGB = 'Es gelten unsere Allgemeinen Geschäftsbedingungen: https://be-3d-druck.de/agb. Die Widerrufsbelehrung finden Sie unter https://be-3d-druck.de/widerruf.';
+const TXT_ANNAHME = 'Zur Annahme antworten Sie bitte auf diese E-Mail mit „Angebot angenommen“.';
+const TXT_ANNAHME_VERBRAUCHER = 'Mit Ihrer Antwort bestätigen Sie, dass Sie den Hinweis zum Widerrufsrecht gelesen haben.';
+
+// Ohne gewählten Kundentyp lässt sich nicht entscheiden, welche Zahlungs-/Widerrufshinweise gelten
+async function kundentypPruefen(q){
+  if(TXT_ZAHLUNG[q.kundentyp]) return true;
+  await showAlert('Bitte zuerst den Kundentyp wählen (Verbraucher / Unternehmer ohne Vorkasse / Unternehmer mit Vorkasse) – davon hängen die Pflichthinweise im PDF ab. Bei älteren Angeboten: Angebot laden, Kundentyp wählen, dann exportieren.');
+  return false;
+}
+
 function buildPdfDoc(q, meta){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -2472,13 +2494,35 @@ function buildPdfDoc(q, meta){
     y += schlussLines.length * 5 + 5;
   }
 
+  // Pflichthinweise: Widerruf (Verbraucher bzw. Sonderanfertigung Shop), Zahlung, Annahme
+  const istShopSonder = q.angebotsvariante === 'sonderanfertigung_shop';
+  const istVerbraucher = q.kundentyp === 'verbraucher';
+  const writeParagraph = (text, size)=>{
+    doc.setFont('helvetica','normal'); doc.setFontSize(size); doc.setTextColor(0);
+    const lines = doc.splitTextToSize(text, 182);
+    const h = lines.length * (size * 0.5) + 4;
+    if(y + h > 285){ doc.addPage(); y = 20; }
+    doc.text(lines, 14, y);
+    y += h;
+  };
+  if(istVerbraucher || istShopSonder){
+    writeParagraph(TXT_WIDERRUF + (istShopSonder ? ' ' + TXT_SONDERWUNSCH_SHOP : ''), 10);
+  }
+  if(TXT_ZAHLUNG[q.kundentyp]) writeParagraph(TXT_ZAHLUNG[q.kundentyp], 10);
+  writeParagraph(TXT_ANNAHME + (istVerbraucher ? ' ' + TXT_ANNAHME_VERBRAUCHER : ''), 10);
+
   const footerLines = [];
   if(firma.iban) footerLines.push(`Zahlung per Überweisung: IBAN ${firma.iban}${firma.bic ? ' · BIC '+firma.bic : ''}${firma.name ? ' · '+firma.name : ''}`);
-  if(q.kleinunternehmer) footerLines.push('Gemäß §19 UStG wird keine Umsatzsteuer berechnet und ausgewiesen.');
+  if(q.kleinunternehmer) footerLines.push(TXT_STEUER_19);
   if(footerLines.length){
+    if(y + footerLines.length * 4 > 285){ doc.addPage(); y = 20; }
     doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120);
     footerLines.forEach(line=>{ doc.text(line, 14, y); y += 4; });
+    y += 2;
   }
+
+  // AGB-Verweis steht immer ganz am Ende
+  writeParagraph(TXT_AGB, 9);
 
   return doc;
 }
@@ -2491,6 +2535,7 @@ function pdfSafeName(q, prefix){
 $('#exportPdfBtn').addEventListener('click', async ()=>{
   if(!window.jspdf){ await showAlert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
   const q = computeQuote();
+  if(!(await kundentypPruefen(q))) return;
   const doc = buildPdfDoc(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
   doc.save(pdfSafeName(q));
 });
@@ -2503,6 +2548,7 @@ $('#mailAngebotBtn').addEventListener('click', async ()=>{
     await showAlert('Bitte zuerst mindestens eine Position mit Stückzahl anlegen.');
     return;
   }
+  if(!(await kundentypPruefen(q))) return;
   const doc = buildPdfDoc(q, {nummer: $('#angebotsNr').value, gueltigBis: $('#gueltigBis').value});
   const filename = pdfSafeName(q);
   doc.save(filename);
@@ -2553,6 +2599,8 @@ function loadAngebotInForm(a){
   $('#versandManuell').value = a.versand || 0;
   $('#einleitungstext').value = a.einleitungstext || '';
   $('#schlusstext').value = a.schlusstext || '';
+  $('#kundentyp').value = (a.ergebnis && a.ergebnis.kundentyp) || '';
+  $('#angebotsvariante').value = (a.ergebnis && a.ergebnis.angebotsvariante) || 'standard';
   const k = a.kunde || {};
   $('#kundeName').value = k.name || '';
   $('#kundeFirma').value = k.firma || '';
@@ -2642,6 +2690,7 @@ function renderArchiv(){
       if(!window.jspdf){ await showAlert('PDF-Bibliothek konnte nicht geladen werden (Internetverbindung beim ersten Laden der Seite erforderlich).'); return; }
       const a = angebote.find(x=>x.id===btn.dataset.pdf);
       if(!a) return;
+      if(!(await kundentypPruefen(a.ergebnis))) return;
       const doc = buildPdfDoc(a.ergebnis, {nummer: a.nummer, datum: a.datum, gueltigBis: a.gueltigBis});
       doc.save(pdfSafeName(a.ergebnis, a.nummer));
     });
