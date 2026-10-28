@@ -3,7 +3,10 @@
 // Kein Framework, kein Daemon, keine Datenbank: pro Schlüssel eine JSON-Datei.
 declare(strict_types=1);
 
-$cfg = require __DIR__ . '/config.php';
+// Konfiguration: config.php (klassisches Webhosting) oder Umgebungsvariablen (Docker/Coolify).
+$cfg = is_file(__DIR__ . '/config.php')
+    ? require __DIR__ . '/config.php'
+    : ['token' => (string)getenv('KALKULATOR_TOKEN'), 'data_dir' => getenv('KALKULATOR_DATA_DIR') ?: null];
 const KEYS = ['kunden', 'kundenCounter', 'angebote', 'angebotsCounter'];
 const COUNTER_KEYS = ['kundenCounter', 'angebotsCounter'];
 
