@@ -986,6 +986,8 @@ function applyKundeAutofill(k){
   $('#kundeTelefon').value = k.telefon||'';
   $('#kundeAdresse').value = k.adresse||'';
   $('#kundentyp').value = k.kundentyp === 'unternehmer' ? 'unternehmer' : 'verbraucher';
+  // Vorkasse gilt nur je Angebot: beim Laden eines Kunden nie übernehmen
+  $('#vorkasse').checked = false;
   toggleVorkasse();
   if(k.rabattPct && !(parseFloat($('#extraDiscount').value)>0)) $('#extraDiscount').value = k.rabattPct;
   refreshKundeInfoHint();
@@ -999,7 +1001,14 @@ function toggleVorkasse(){
 }
 $('#kundentyp').addEventListener('change', toggleVorkasse);
 
+// Kunde, zu dem das Vorkasse-Häkchen gehört; bei Namenswechsel wird es zurückgesetzt
+let vorkasseKundeName = '';
 $('#kundeName').addEventListener('input', ()=>{
+  const nameKey = $('#kundeName').value.trim().toLowerCase();
+  if(nameKey !== vorkasseKundeName){
+    vorkasseKundeName = nameKey;
+    $('#vorkasse').checked = false;
+  }
   const k = findKundeByName($('#kundeName').value);
   if(k) applyKundeAutofill(k); else refreshKundeInfoHint();
 });
@@ -2384,8 +2393,10 @@ const TXT_ANNAHME = 'Zur Annahme antworten Sie bitte auf diese E-Mail mit „Ang
 const TXT_ANNAHME_VERBRAUCHER = 'Mit Ihrer Antwort bestätigen Sie, dass Sie den Hinweis zum Widerrufsrecht gelesen haben.';
 
 // Zahlungsbaustein eines Angebots; bei fehlender/unklarer Angabe (z. B. ältere Angebote) gilt Verbraucher.
+// Die Shop-Variante gilt immer als Verbraucher, unabhängig von Kundentyp und Vorkasse.
 // 'unternehmer_vorkasse' als Kundentyp stammt aus einer früheren Programmversion.
 function zahlungsKey(q){
+  if(q.angebotsvariante === 'sonderanfertigung_shop') return 'verbraucher';
   if(q.kundentyp === 'unternehmer_vorkasse') return 'unternehmer_vorkasse';
   if(q.kundentyp === 'unternehmer') return q.vorkasse ? 'unternehmer_vorkasse' : 'unternehmer';
   return 'verbraucher';
@@ -2396,7 +2407,7 @@ async function kundentypBestaetigen(q){
   const key = zahlungsKey(q);
   const label = {verbraucher:'Verbraucher', unternehmer:'Unternehmer (ohne Vorkasse)', unternehmer_vorkasse:'Unternehmer (mit Vorkasse)'}[key];
   let msg = `Kundentyp: ${label}\n${TXT_ZAHLUNG[key]}`;
-  if(q.angebotsvariante === 'sonderanfertigung_shop') msg += '\nVariante „Sonderanfertigung Shop“: wird wie Verbraucher behandelt (Widerrufsrechts-Hinweis und Bestätigung bei der Annahme).';
+  if(q.angebotsvariante === 'sonderanfertigung_shop') msg += '\nHinweis: Die Variante „Angebot Sonderanfertigung Shop“ wird immer wie ein Verbraucher behandelt (Widerrufsrechts-Hinweis, Zahlungstext und Bestätigung bei der Annahme), unabhängig von Kundentyp und Vorkasse.';
   return showConfirm(msg + '\n\nStimmt das? Dann PDF erstellen.');
 }
 
@@ -2634,6 +2645,7 @@ function loadAngebotInForm(a){
   const eKey = zahlungsKey(a.ergebnis || {});
   $('#kundentyp').value = eKey === 'verbraucher' ? 'verbraucher' : 'unternehmer';
   $('#vorkasse').checked = eKey === 'unternehmer_vorkasse';
+  vorkasseKundeName = ((a.kunde && a.kunde.name) || '').trim().toLowerCase();
   toggleVorkasse();
   $('#angebotsvariante').value = (a.ergebnis && a.ergebnis.angebotsvariante) || 'standard';
   const k = a.kunde || {};
